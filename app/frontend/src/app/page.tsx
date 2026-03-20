@@ -166,7 +166,7 @@ function Heatmap({ tokens, matrix }: { tokens: string[]; matrix: number[][] }) {
 }
 
 /** Bipartite token flow diagram for a selected token */
-function TokenFlow({ tokens, row, fromIdx }: { tokens: string[]; row: number[]; fromIdx: number }) {
+function TokenFlow({ tokens, row, fromIdx, onSelect }: { tokens: string[]; row: number[]; fromIdx: number; onSelect: (i: number) => void }) {
   const W = 520, H = Math.max(tokens.length * 28, 200);
   const cx = W / 2;
   const yFor = (i: number) => 14 + i * (H / tokens.length);
@@ -188,7 +188,7 @@ function TokenFlow({ tokens, row, fromIdx }: { tokens: string[]; row: number[]; 
       })}
       {/* source tokens (left) */}
       {tokens.map((t, ti) => (
-        <g key={`L${ti}`}>
+        <g key={`L${ti}`} onClick={() => onSelect(ti)} style={{ cursor: "pointer" }}>
           <rect x={4} y={yFor(ti) - 11} width={92} height={22} rx={5}
             fill={ti === fromIdx ? "rgba(59,130,246,0.25)" : "rgba(255,255,255,0.04)"}
             stroke={ti === fromIdx ? "#3b82f6" : "rgba(255,255,255,0.1)"} strokeWidth={1}
@@ -202,7 +202,7 @@ function TokenFlow({ tokens, row, fromIdx }: { tokens: string[]; row: number[]; 
       {tokens.map((t, ti) => {
         const v = row[ti];
         return (
-          <g key={`R${ti}`}>
+          <g key={`R${ti}`} onClick={() => onSelect(ti)} style={{ cursor: "pointer" }}>
             <rect x={W - 96} y={yFor(ti) - 11} width={92} height={22} rx={5}
               fill={`rgba(139,92,246,${0.05 + v * 0.35})`}
               stroke={`rgba(139,92,246,${0.15 + v * 0.6})`} strokeWidth={1}
@@ -267,7 +267,7 @@ function LimitsChart({ data }: { data: LimitRow[] }) {
 }
 
 // ── Main Page ─────────────────────────────────────────────────────
-type Tab = "attention" | "limits" | "flow" | "compare";
+type Tab = "attention" | "limits" | "flow" | "compare" | "tokenization";
 
 export default function Home() {
   const [text, setText] = useState(
@@ -451,9 +451,60 @@ export default function Home() {
         {(attnData || limitsData) && (
           <div style={{ display: "flex", gap: 10 }}>
             {attnData && <TabBtn id="attention" label="Attention Matrix" icon="🧠" />}
+            {attnData && <TabBtn id="tokenization" label="Vocabulary Fit" icon="🔬" />}
             {attnData && <TabBtn id="flow" label="Token Flow" icon="🌊" />}
             {attnData && <TabBtn id="compare" label="Compare Models" icon="⚖️" />}
             {limitsData && <TabBtn id="limits" label="Practical Limits" icon="⚡" />}
+          </div>
+        )}
+
+        {/* ══ TOKENIZATION ANALYSIS TAB ══ */}
+        {tab === "tokenization" && attnData && (
+          <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
+            <section className="glass" style={{ padding: 22 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Fragmentation Map: {selectedModel.label}</h2>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 4px", background: "rgba(0,0,0,0.15)", padding: 16, borderRadius: 12, lineHeight: 2 }}>
+                {attnData.tokens.map((t, i) => {
+                  const isSub = t.startsWith("##") || (!t.startsWith("Ġ") && !t.startsWith(" ") && i > 0 && !["[CLS]","[SEP]","<s>","</s>","<pad>","[MASK]"].includes(t));
+                  const isSpecial = ["[CLS]","[SEP]","<s>","</s>","<pad>","[MASK]"].includes(t);
+                  return (
+                    <span key={i} style={{
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      fontSize: 13,
+                      fontFamily: "var(--font-mono, monospace)",
+                      background: isSpecial ? "rgba(255,255,255,0.05)" : isSub ? "rgba(248,113,113,0.15)" : "rgba(52,211,153,0.1)",
+                      color: isSpecial ? "var(--muted)" : isSub ? "#fca5a5" : "#6ee7b7",
+                      border: "1px solid",
+                      borderColor: isSpecial ? "transparent" : isSub ? "rgba(248,113,113,0.3)" : "rgba(52,211,153,0.2)",
+                    }}>
+                      {t}
+                    </span>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <div className="glass" style={{ padding: 16, background: "rgba(255,255,255,0.02)" }}>
+                  <div style={{ fontSize: 10, color: "var(--muted)", marginBottom: 4 }}>TOTAL TOKENS</div>
+                  <div style={{ fontSize: 20, fontWeight: 800 }}>{attnData.tokens.length}</div>
+                </div>
+                <div className="glass" style={{ padding: 16, background: "rgba(255,255,255,0.02)" }}>
+                  <div style={{ fontSize: 10, color: "var(--muted)", marginBottom: 4 }}>VOCAB OVERHEAD</div>
+                  <div style={{ fontSize: 20, fontWeight: 800 }}>
+                    {((attnData.tokens.length / getFragmentation(attnData.tokens).wordCount - 1) * 100).toFixed(0)}%
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="glass" style={{ padding: 22 }}>
+              <TokenHealth tokens={attnData.tokens} />
+              <div style={{ height: "1px", background: "var(--border)", opacity: 0.4, margin: "20px 0" }} />
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-purple)", marginBottom: 10 }}>SCIENTIST'S NOTE</div>
+              <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>
+                Every split token represents an "Attention Penalty." When a model has high overhead (red markers), it must spend its first 2-3 layers performing sub-word assembly rather than higher-order semantic reasoning. If your domain text shows &gt;40% overhead, consider a model with a larger vocabulary (like <strong>ModernBERT</strong> or <strong>BGE-M3</strong>).
+              </p>
+            </section>
           </div>
         )}
 
@@ -530,10 +581,6 @@ export default function Home() {
 
             {/* Left: controls */}
             <section className="glass" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 24 }}>
-
-              <TokenHealth tokens={attnData.tokens} />
-
-              <div style={{ height: "1px", background: "var(--border)", opacity: 0.4 }} />
 
               {/* Stats chips */}
               {stats && (
@@ -651,9 +698,9 @@ export default function Home() {
                 Token Flow · <span style={{ color: "#93c5fd" }}>{attnData.tokens[selToken]}</span>
               </h2>
               <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 20 }}>
-                Line thickness and opacity encode attention weight from the selected source token.
+                Line thickness and opacity encode attention weight from the selected source token. Click any token to pivot.
               </p>
-              <TokenFlow tokens={attnData.tokens} row={flowRow} fromIdx={selToken} />
+              <TokenFlow tokens={attnData.tokens} row={flowRow} fromIdx={selToken} onSelect={setSelToken} />
             </section>
           </div>
         )}
