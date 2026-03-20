@@ -125,7 +125,7 @@ Given an input sequence $X \in \mathbb{R}^{T \times d_{\text{model}}}$, the quer
   \draw[arr] (WV) -- (V);
 
   % Q,K into dot-product
-  \draw[arr] (Q.south) -- ++(0,-0.35) -| (dot.north west);
+  \draw[arr] (Q.south) -- ++(0,-0.65) -| (dot.west);
   \draw[arr] (K) -- (dot);
 
   % dot → softmax → multiply
@@ -133,7 +133,7 @@ Given an input sequence $X \in \mathbb{R}^{T \times d_{\text{model}}}$, the quer
   \draw[arr] (sm) -- (mul);
 
   % V into multiply
-  \draw[arr] (V.south) -- ++(0,-0.35) -| (mul.north east);
+  \draw[arr] (V.south) -- ++(0,-2.6) -| (mul.east);
 
   % multiply → output
   \draw[arr] (mul) -- (out);
