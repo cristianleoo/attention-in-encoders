@@ -40,6 +40,71 @@ function entropy(row: number[]): number {
   return row.reduce((s, p) => s - (p > 1e-9 ? p * Math.log(p) : 0), 0);
 }
 
+// ── Fragmentation Analysis ────────────────────────────────────────
+function getFragmentation(tokens: string[]): { wordCount: number; fragRatio: number; fragmentedWords: string[] } {
+  let wordCount = 0;
+  let subTokens = 0;
+  const fragmentedWords: string[] = [];
+  let currentWord = "";
+  let isFragmented = false;
+
+  tokens.forEach(t => {
+    // Standard BERT/RoBERTa/ModernBERT markers
+    const isSub = t.startsWith("##") || (!t.startsWith("Ġ") && !t.startsWith(" ") && wordCount > 0 && !["[CLS]","[SEP]","<s>","</s>","<pad>","[MASK]"].includes(t));
+    
+    if (isSub) {
+      subTokens++;
+      if (!isFragmented) {
+        fragmentedWords.push(currentWord + t.replace("##", ""));
+        isFragmented = true;
+      }
+    } else {
+      wordCount++;
+      currentWord = t.replace("Ġ", "").replace(" ", "");
+      isFragmented = false;
+    }
+  });
+
+  return { 
+    wordCount: Math.max(1, wordCount), 
+    fragRatio: (tokens.length / Math.max(1, wordCount)),
+    fragmentedWords 
+  };
+}
+
+function TokenHealth({ tokens }: { tokens: string[] }) {
+  const { wordCount, fragRatio, fragmentedWords } = getFragmentation(tokens);
+  const isBad = fragRatio > 1.4;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--muted)", letterSpacing: "0.08em" }}>TOKENIZATION HEALTH</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+        <span style={{ fontSize: 24, fontWeight: 800, color: isBad ? "#f87171" : "#34d399" }}>
+          {fragRatio.toFixed(2)}
+        </span>
+        <span style={{ fontSize: 11, color: "var(--muted)" }}>tokens/word</span>
+      </div>
+      <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.4 }}>
+        {isBad 
+          ? "⚠️ High fragmentation. Attention may be diluted by intra-word reconstruction." 
+          : "✅ Healthy density. Most words are represented by single semantic units."}
+      </div>
+      {fragmentedWords.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <div style={{ fontSize: 9, color: "var(--muted)", marginBottom: 4 }}>SPLIT WORDS:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+            {fragmentedWords.slice(0, 5).map((w, i) => (
+              <span key={i} className="chip" style={{ fontSize: 9, padding: "2px 6px" }}>{w}</span>
+            ))}
+            {fragmentedWords.length > 5 && <span style={{ fontSize: 9, color: "var(--muted)" }}>+{fragmentedWords.length - 5} more</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Sub-Components ────────────────────────────────────────────────
 
 function HeadThumb({ matrix, active, onClick }: { matrix: number[][]; active: boolean; onClick: () => void }) {
@@ -224,15 +289,30 @@ export default function Home() {
   const [limitsLoading, setLimitsLoading] = useState(false);
   const [limitsError, setLimitsError] = useState<string | null>(null);
   const [limitsData, setLimitsData] = useState<LimitsData | null>(null);
+  const [limitsData2, setLimitsData2] = useState<LimitsData | null>(null);
 
   const selectedModel = MODELS.find(m => m.id === modelId) ?? MODELS[0];
 
-  // ── Fetch attention ──
+  const fetchLimits = async (mId: string) => {
+    const m = MODELS.find(x => x.id === mId) ?? MODELS[0];
+    const seqLengths = SEQ_LENGTHS.filter(l => l <= m.maxLen);
+    if (m.maxLen >= 1024 && !seqLengths.includes(1024)) seqLengths.push(1024);
+    const res = await fetch(`${API}/api/limits`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_name: mId, seq_lengths: seqLengths }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  };
+
+  // ── Fetch attention & limits ──
   const analyzeAttention = useCallback(async () => {
     setAttnLoading(true);
     setAttnError(null);
+    setLimitsError(null);
     try {
-      // Fetch first model
+      // Fetch primary model
       const res1 = await fetch(`${API}/api/attention`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -241,6 +321,10 @@ export default function Home() {
       if (!res1.ok) { const b = await res1.json().catch(() => ({})); throw new Error(b.detail ?? `HTTP ${res1.status}`); }
       const d1: AttData = await res1.json();
       setAttnData(d1);
+
+      // Auto-fetch limits for primary
+      const lim1 = await fetchLimits(modelId);
+      if (lim1) setLimitsData(lim1);
 
       // Optionally fetch second model if in compare mode
       if (tab === "compare") {
@@ -252,8 +336,11 @@ export default function Home() {
         if (res2.ok) {
           setAttnData2(await res2.json());
         }
+        const lim2 = await fetchLimits(modelId2);
+        if (lim2) setLimitsData2(lim2);
       } else {
         setAttnData2(null);
+        setLimitsData2(null);
       }
 
       setSelLayer(0); setSelHead(0); setSelToken(0);
@@ -263,28 +350,6 @@ export default function Home() {
       setAttnLoading(false);
     }
   }, [text, modelId, modelId2, tab]);
-
-  // ── Fetch limits ──
-  const probeLimits = useCallback(async () => {
-    setLimitsLoading(true);
-    setLimitsError(null);
-    const seqLengths = SEQ_LENGTHS.filter(l => l <= selectedModel.maxLen);
-    if (selectedModel.maxLen >= 1024 && !seqLengths.includes(1024)) seqLengths.push(1024);
-    try {
-      const res = await fetch(`${API}/api/limits`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model_name: modelId, seq_lengths: seqLengths }),
-      });
-      if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.detail ?? `HTTP ${res.status}`); }
-      setLimitsData(await res.json());
-      setTab("limits");
-    } catch (e) {
-      setLimitsError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLimitsLoading(false);
-    }
-  }, [modelId, selectedModel.maxLen]);
 
   // ── Stats for current head ──
   const stats = useMemo(() => {
@@ -372,11 +437,6 @@ export default function Home() {
                   {attnLoading && <span className="spinner" />}
                   {attnLoading ? "Analyzing…" : "Analyze"}
                 </button>
-                <button onClick={probeLimits} disabled={limitsLoading}
-                  style={{ flex: 1, padding: "11px 0", fontSize: 13, borderRadius: 12, border: "1px solid var(--border)", background: "rgba(255,255,255,0.05)", color: "var(--text)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
-                  {limitsLoading && <span className="spinner" />}
-                  {limitsLoading ? "Probing…" : "⚡ Limits"}
-                </button>
               </div>
             </div>
           </div>
@@ -422,6 +482,17 @@ export default function Home() {
                     matrix={attnData2.attention[selLayer] ? (attnData2.attention[selLayer][selHead] ?? attnData2.attention[selLayer][0]) : attnData2.attention[0][0]} 
                   />
                 </section>
+
+                {/* Tokenization side-by-side comparison */}
+                <div style={{ gridColumn: "span 2", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                  <section className="glass" style={{ padding: 18 }}>
+                    <TokenHealth tokens={attnData.tokens} />
+                  </section>
+                  <section className="glass" style={{ padding: 18 }}>
+                    <TokenHealth tokens={attnData2.tokens} />
+                  </section>
+                </div>
+
                 <div style={{ gridColumn: "span 2" }}>
                   <section className="glass" style={{ padding: 18, display: "flex", gap: 40, justifyContent: "center" }}>
                     <div>
@@ -458,7 +529,11 @@ export default function Home() {
           <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20, alignItems: "start" }}>
 
             {/* Left: controls */}
-            <section className="glass" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 20 }}>
+            <section className="glass" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 24 }}>
+
+              <TokenHealth tokens={attnData.tokens} />
+
+              <div style={{ height: "1px", background: "var(--border)", opacity: 0.4 }} />
 
               {/* Stats chips */}
               {stats && (
@@ -623,13 +698,41 @@ export default function Home() {
           </div>
         )}
 
+        {/* ── Selection Guide ── */}
+        <section className="glass" style={{ padding: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+            <span style={{ fontSize: 20 }}>📘</span>
+            <h2 style={{ fontSize: 18, fontWeight: 700 }}>Practical Model Selection Guide</h2>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", marginBottom: 6 }}>NLU & CLASSIFICATION</div>
+              <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
+                Use <strong>DeBERTa v3</strong>. Its disentangled attention mechanism is specifically engineered to understand relative positioning, making it the top performer for GLUE benchmarks.
+              </p>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#8b5cf6", marginBottom: 6 }}>LONG CONTEXTS (8k+)</div>
+              <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
+                Use <strong>ModernBERT</strong>. Its alternating local-global attention schedule and FlashAttention-3 integration allow it to handle 8k context with higher speed than legacy encoders.
+              </p>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#10b981", marginBottom: 6 }}>RETRIEVAL & EMBEDDINGS</div>
+              <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
+                Use <strong>BGE-M3</strong>. It is pre-trained with a focus on dense retrieval and handles multi-lingual inputs with extremely low fragmentation.
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* ── Empty state ── */}
         {!attnData && !limitsData && (
           <div style={{ textAlign: "center", padding: "60px 0", color: "var(--muted)" }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>🔬</div>
             <p style={{ fontSize: 14 }}>
-              Click <strong style={{ color: "var(--text)" }}>Analyze</strong> to explore attention matrices,
-              or <strong style={{ color: "var(--text)" }}>⚡ Limits</strong> to probe sequence length limits.
+              Click <strong style={{ color: "var(--text)" }}>Analyze</strong> to explore attention matrices
+              and benchmark sequence length limits.
             </p>
           </div>
         )}

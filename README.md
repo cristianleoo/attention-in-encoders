@@ -1,80 +1,72 @@
-# Attention in Encoder-Only Models
+# Encoder Attention Explorer
 
-Research paper + interactive visualization exploring bidirectional self-attention in BERT, RoBERTa, DeBERTa, and ModernBERT.
+An interactive visualization tool for exploring bidirectional self-attention mechanisms in Transformer models (BERT, RoBERTa, DeBERTa, and ModernBERT).
 
 ---
 
-## Project Structure
+## 📄 Research Paper
+
+This project is the official implementation for the paper:  
+**"Comprehensive Survey of Attention Mechanisms in Encoder-Only Language Models"**  
+[Read the paper on arXiv](https://arxiv.org/abs/XXXX.XXXXX)
+
+---
+
+## 🎨 Interactive Explorer
+
+Probe bidirectional self-attention, visualize token-to-token flow, and benchmark hardware limits across multiple model architectures.
+
+### Quickstart
+
+To run both the backend (FastAPI) and frontend (Next.js) from the project root:
+
+1.  **Install dependencies** (run once):
+    ```bash
+    npm run install:all
+    ```
+2.  **Start the application**:
+    ```bash
+    npm run dev
+    ```
+    - **Frontend:** `http://localhost:3000`
+    - **Backend API:** `http://localhost:8000`
+
+---
+
+## 📂 Project Structure
 
 ```
 attention-in-encoders/
-├── paper/          LaTeX source for arXiv submission
-│   ├── main.tex
-│   └── references.bib
 ├── app/
-│   ├── backend/    FastAPI + HuggingFace inference
-│   └── frontend/   Next.js interactive UI
-├── docs/           Architecture & API docs
-└── tests/          Backend tests
+│   ├── backend/    FastAPI + HuggingFace (Inference Engine)
+│   └── frontend/   Next.js (React Explorer UI)
+├── docs/           System architecture & API reference
+└── tests/          Automated backend & frontend tests
 ```
 
 ---
 
-## Quickstart
-
-### 1 · Paper (LaTeX)
-
-Requires a LaTeX distribution (e.g. TeX Live or MiKTeX):
-
-```bash
-cd paper
-pdflatex main.tex
-bibtex main
-pdflatex main.tex && pdflatex main.tex
-```
-
-### 2 · Backend
-
-```bash
-cd app/backend
-source venv/bin/activate          # or venv\Scripts\activate on Windows
-uvicorn main:app --reload --port 8000
-```
-
-API will be available at `http://localhost:8000`.
-
-### 3 · Frontend
-
-```bash
-cd app/frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000` in your browser.
-
----
-
-## Supported Models
+## 🛠 Supported Models
 
 | Model | Attention Type | Context |
 |---|---|---|
 | `bert-base-uncased` | Standard Bidirectional MHA | 512 tokens |
 | `roberta-base` | Standard Bidirectional MHA | 512 tokens |
 | `microsoft/deberta-v3-base` | Disentangled (Content + Position) | 512 tokens |
-| `answerdotai/ModernBERT-base` | Alternating Global / Local | 8 192 tokens |
+| `answerdotai/ModernBERT-base` | Alternating Global / Local | 8,192 tokens |
+| `BAAI/bge-m3` | Multi-Granularity Embedding | 8,192 tokens |
+| `Alibaba-NLP/gte-modernbert-base` | GTE-ModernBERT Retrieval | 8,192 tokens |
 
 ---
 
-## Tests
+## 🧪 Tests
 
 ```bash
-cd tests
-python -m pytest backend/ -v
+npm run test
 ```
 
 ---
 
-## Docs
+## ⚖️ License
 
-See [`docs/architecture.md`](docs/architecture.md) for the full API reference and system architecture.
+Distributed under the Apache 2.0 License. See `LICENSE` for more information.
