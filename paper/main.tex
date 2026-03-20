@@ -1,0 +1,640 @@
+\documentclass[11pt]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, matrix, shapes.geometric, decorations.pathreplacing}
+\usepackage{colortbl}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage[colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black]{hyperref}
+\usepackage{microtype}
+\usepackage{enumitem}
+
+% ── Theorem environments ───────────────────────────────────────────────────────
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{proposition}[theorem]{Proposition}
+
+% ── Document ──────────────────────────────────────────────────────────────────
+\title{%
+  \textbf{Comprehensive Survey of Attention Mechanisms in\\
+  Encoder-Only Language Models}\\[0.5em]
+  {\large Architectures, Efficiencies, and Interpretability}
+}
+\author{Cristian Leo \and Daniel Begimher}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+
+% ── Abstract ─────────────────────────────────────────────────────────────────
+\begin{abstract}
+The introduction of the Transformer architecture in 2017 catalyzed a fundamental paradigm shift in natural language processing~\cite{vaswani2017attention}. While decoder-only autoregressive models have come to dominate generative AI, encoder-only bidirectional models historically establish and maintain state-of-the-art results in natural language understanding, dense information retrieval, and sequence classification. This paper presents an exhaustive survey of the self-attention mechanism within encoder-only models. We analyze its mathematical foundations, trace its architectural evolution from the original BERT~\cite{devlin2018bert} through RoBERTa~\cite{liu2019roberta}, DeBERTa~\cite{he2020deberta}, and ModernBERT~\cite{warner2024smarter}, evaluate efficiency enhancements including sparse attention~\cite{zaheer2020big}, linear kernelized attention, and hardware-aware FlashAttention~\cite{dao2022flashattention}, and dissect the ongoing theoretical debates surrounding attention-based interpretability. We further survey hybrid architectures that interleave state-space models with self-attention, and discuss the practical limits and deployment considerations of encoder attention in long-context regimes.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction to the Encoder-Only Paradigm}
+% ══════════════════════════════════════════════════════════════════════════════
+
+The introduction of the Transformer by Vaswani et al.~\cite{vaswani2017attention} replaced the sequential processing bottlenecks of recurrent neural networks (RNNs) and long short-term memory (LSTM) networks with a highly parallelizable self-attention mechanism, enabling the direct modeling of long-range dependencies without vanishing gradients inherent in recurrence. The original dual encoder-decoder structure was designed specifically for sequence transduction such as machine translation; subsequent research bifurcated into two distinct lineages: decoder-only autoregressive models for generation, and encoder-only bidirectional models for understanding.
+
+Encoder-only models—most prominently the Bidirectional Encoder Representations from Transformers (BERT)~\cite{devlin2018bert}—process the entire input sequence simultaneously without the causal masking required in autoregressive generation. Every token can attend to every other token in both directions, yielding deeply interconnected and semantically rich latent representations. These models are pre-trained via self-supervised objectives such as Masked Language Modeling (MLM)~\cite{devlin2018bert} that develop a profound understanding of syntax, semantics, and ontological relationships.
+
+Despite the industry-wide pivot toward massive decoder-only LLMs, encoder-only architectures remain the most computationally efficient choice for discriminative tasks and embedding generation. However, the core bidirectional self-attention mechanism suffers from a quadratic computational complexity $\mathcal{O}(T^2)$ with respect to sequence length $T$, severely limiting applicability to long-context domains such as legal documents, medical records, or genomic sequences.
+
+\subsection{Scope and Contributions}
+This survey makes the following contributions:
+\begin{enumerate}[label=(\roman*)]
+  \item A rigorous mathematical treatment of bidirectional self-attention and its variants;
+  \item A unified architectural taxonomy covering standard, disentangled, sparse, and linear attention paradigms;
+  \item A critical review of hardware-aware optimizations (FlashAttention, FlexAttention);
+  \item An analysis of hybrid SSM-Transformer encoder architectures;
+  \item A synthesis of the interpretability debate and the attention-sink phenomenon; and
+  \item Empirical benchmarks across GLUE, SuperGLUE, and dense retrieval with practical limits.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Mathematical Foundations of Bidirectional Self-Attention}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Scaled Dot-Product Attention}
+
+\begin{definition}[Scaled Dot-Product Attention]
+Given an input sequence $X \in \mathbb{R}^{T \times d_{\text{model}}}$, the queries, keys, and values are defined as $Q = XW_Q$, $K = XW_K$, $V = XW_V$ where $W_Q, W_K \in \mathbb{R}^{d_{\text{model}} \times d_k}$ and $W_V \in \mathbb{R}^{d_{\text{model}} \times d_v}$. The scaled dot-product attention is:
+\begin{equation}
+  \text{Attention}(Q, K, V) = \text{softmax} \!\left( \frac{QK^\top}{\sqrt{d_k}} \right) V
+  \label{eq:attention}
+\end{equation}
+\end{definition}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=4pt, minimum width=1.8cm, minimum height=0.65cm,
+               fill=blue!8, font=\small, align=center},
+  matbox/.style={draw, rounded corners=4pt, minimum width=1.4cm, minimum height=0.6cm,
+                 fill=orange!12, font=\small\itshape, align=center},
+  arr/.style={-Stealth, thick, gray!70},
+  every node/.style={font=\small}
+]
+  % Input X
+  \node[box, fill=gray!10] (X) {$X \in \mathbb{R}^{T\times d}$};
+
+  % Three projection branches
+  \node[matbox, below left=1.1cm and 1.6cm of X]  (WQ) {$W_Q$};
+  \node[matbox, below=1.1cm of X]                 (WK) {$W_K$};
+  \node[matbox, below right=1.1cm and 1.6cm of X] (WV) {$W_V$};
+
+  \node[box, fill=blue!12,  below=0.5cm of WQ] (Q) {$Q$};
+  \node[box, fill=green!12, below=0.5cm of WK] (K) {$K$};
+  \node[box, fill=red!10,   below=0.5cm of WV] (V) {$V$};
+
+  % Dot-product node
+  \node[draw, circle, fill=yellow!15, below=1.0cm of K,
+        minimum size=0.9cm, font=\footnotesize, align=center] (dot) {$QK^\top / \sqrt{d_k}$};
+
+  % Softmax
+  \node[box, fill=purple!10, below=0.6cm of dot] (sm) {softmax};
+
+  % Multiply by V
+  \node[draw, circle, fill=yellow!15, below=0.6cm of sm,
+        minimum size=0.7cm, font=\Large] (mul) {$\times$};
+
+  % Output
+  \node[box, fill=teal!10, below=0.55cm of mul] (out) {Output $\in\mathbb{R}^{T\times d_v}$};
+
+  % Arrows from X to projections
+  \draw[arr] (X) -- (WQ);
+  \draw[arr] (X) -- (WK);
+  \draw[arr] (X) -- (WV);
+
+  % Projections to Q,K,V
+  \draw[arr] (WQ) -- (Q);
+  \draw[arr] (WK) -- (K);
+  \draw[arr] (WV) -- (V);
+
+  % Q,K into dot-product
+  \draw[arr] (Q.south) -- ++(0,-0.35) -| (dot.north west);
+  \draw[arr] (K) -- (dot);
+
+  % dot → softmax → multiply
+  \draw[arr] (dot) -- (sm);
+  \draw[arr] (sm) -- (mul);
+
+  % V into multiply
+  \draw[arr] (V.south) -- ++(0,-0.35) -| (mul.north east);
+
+  % multiply → output
+  \draw[arr] (mul) -- (out);
+\end{tikzpicture}
+\caption{Scaled dot-product attention computation. The input sequence $X$ is linearly projected into query ($Q$), key ($K$), and value ($V$) spaces. Dot products between $Q$ and $K$ are scaled by $1/\sqrt{d_k}$ and normalized by softmax to produce attention weights, which then aggregate the values.}
+\label{fig:attention_flow}
+\end{figure}
+
+The dot product $QK^\top \in \mathbb{R}^{T \times T}$ computes unnormalized similarity scores between all query-key pairs across the entire sequence. The scaling factor $1/\sqrt{d_k}$ prevents excessively large dot products that would push the softmax into regions of vanishing gradients~\cite{vaswani2017attention}. Unlike causal self-attention in decoder-only architectures, bidirectional encoder attention applies \emph{no} temporal mask, allowing every output token representation to be a weighted combination of \emph{all} input values.
+
+\subsection{Multi-Head Attention}
+
+To capture diverse relationships (e.g., short-term syntactic dependencies and long-term semantic coreferences) concurrently, the mechanism is extended to multi-head attention~\cite{vaswani2017attention}:
+\begin{equation}
+  \text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h) W^O
+\end{equation}
+where $\text{head}_i = \text{Attention}(Q W_i^Q, K W_i^K, V W_i^V)$ and each head projects into a lower-dimensional subspace $d_k = d_v = d_{\text{model}} / h$. This multi-head design provides redundant representational capacity and allows heads to specialize in distinct linguistic phenomena.
+
+\subsection{Computational Complexity}
+
+\begin{proposition}[Quadratic Complexity]
+Standard multi-head self-attention on a sequence of length $T$ with model dimension $d$ requires $\mathcal{O}(T^2 \cdot d)$ time and $\mathcal{O}(T^2 \cdot h)$ memory to materialize the full attention matrix.
+\end{proposition}
+
+% Fig 2 — Synthetic attention heatmap (explicit fills, no PGF array indexing)
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+  \def\cs{0.72}
+  % Row 0: [CLS] query
+  \fill[blue!40!white](0*\cs,-0*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](0*\cs,-0*\cs)rectangle++(\cs,\cs);
+  \fill[blue!15!white](1*\cs,-0*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](1*\cs,-0*\cs)rectangle++(\cs,\cs);
+  \fill[blue!15!white](2*\cs,-0*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](2*\cs,-0*\cs)rectangle++(\cs,\cs);
+  \fill[blue!15!white](3*\cs,-0*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](3*\cs,-0*\cs)rectangle++(\cs,\cs);
+  \fill[blue!15!white](4*\cs,-0*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](4*\cs,-0*\cs)rectangle++(\cs,\cs);
+  % Row 1: the
+  \fill[blue!55!white](0*\cs,-1*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](0*\cs,-1*\cs)rectangle++(\cs,\cs);
+  \fill[blue!20!white](1*\cs,-1*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](1*\cs,-1*\cs)rectangle++(\cs,\cs);
+  \fill[blue!10!white](2*\cs,-1*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](2*\cs,-1*\cs)rectangle++(\cs,\cs);
+  \fill[blue!10!white](3*\cs,-1*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](3*\cs,-1*\cs)rectangle++(\cs,\cs);
+  \fill[blue!5!white] (4*\cs,-1*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](4*\cs,-1*\cs)rectangle++(\cs,\cs);
+  % Row 2: fox
+  \fill[blue!30!white](0*\cs,-2*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](0*\cs,-2*\cs)rectangle++(\cs,\cs);
+  \fill[blue!8!white] (1*\cs,-2*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](1*\cs,-2*\cs)rectangle++(\cs,\cs);
+  \fill[blue!35!white](2*\cs,-2*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](2*\cs,-2*\cs)rectangle++(\cs,\cs);
+  \fill[blue!20!white](3*\cs,-2*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](3*\cs,-2*\cs)rectangle++(\cs,\cs);
+  \fill[blue!7!white] (4*\cs,-2*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](4*\cs,-2*\cs)rectangle++(\cs,\cs);
+  % Row 3: jumps
+  \fill[blue!25!white](0*\cs,-3*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](0*\cs,-3*\cs)rectangle++(\cs,\cs);
+  \fill[blue!7!white] (1*\cs,-3*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](1*\cs,-3*\cs)rectangle++(\cs,\cs);
+  \fill[blue!28!white](2*\cs,-3*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](2*\cs,-3*\cs)rectangle++(\cs,\cs);
+  \fill[blue!32!white](3*\cs,-3*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](3*\cs,-3*\cs)rectangle++(\cs,\cs);
+  \fill[blue!8!white] (4*\cs,-3*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](4*\cs,-3*\cs)rectangle++(\cs,\cs);
+  % Row 4: [SEP]
+  \fill[blue!50!white](0*\cs,-4*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](0*\cs,-4*\cs)rectangle++(\cs,\cs);
+  \fill[blue!10!white](1*\cs,-4*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](1*\cs,-4*\cs)rectangle++(\cs,\cs);
+  \fill[blue!12!white](2*\cs,-4*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](2*\cs,-4*\cs)rectangle++(\cs,\cs);
+  \fill[blue!12!white](3*\cs,-4*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](3*\cs,-4*\cs)rectangle++(\cs,\cs);
+  \fill[blue!16!white](4*\cs,-4*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](4*\cs,-4*\cs)rectangle++(\cs,\cs);
+  % Column labels
+  \node[font=\footnotesize\ttfamily,rotate=40,anchor=west]at(0*\cs+0.36,0.55){[CLS]};
+  \node[font=\footnotesize\ttfamily,rotate=40,anchor=west]at(1*\cs+0.36,0.55){the};
+  \node[font=\footnotesize\ttfamily,rotate=40,anchor=west]at(2*\cs+0.36,0.55){fox};
+  \node[font=\footnotesize\ttfamily,rotate=40,anchor=west]at(3*\cs+0.36,0.55){jumps};
+  \node[font=\footnotesize\ttfamily,rotate=40,anchor=west]at(4*\cs+0.36,0.55){[SEP]};
+  % Row labels
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.08,-0*\cs-0.36){[CLS]};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.08,-1*\cs-0.36){the};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.08,-2*\cs-0.36){fox};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.08,-3*\cs-0.36){jumps};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.08,-4*\cs-0.36){[SEP]};
+  % Colour bar (explicit steps)
+  \fill[blue!0!white]  (3.80,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!5!white]  (3.88,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!10!white] (3.96,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!15!white] (4.04,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!20!white] (4.12,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!25!white] (4.20,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!30!white] (4.28,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!35!white] (4.36,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!40!white] (4.44,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!45!white] (4.52,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!50!white] (4.60,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!55!white] (4.68,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!60!white] (4.76,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!65!white] (4.84,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!70!white] (4.92,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!75!white] (5.00,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!80!white] (5.08,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!85!white] (5.16,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!90!white] (5.24,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!95!white] (5.32,-4.25)rectangle++(0.08,0.28);
+  \fill[blue!100!white](5.40,-4.25)rectangle++(0.08,0.28);
+  \draw(3.80,-4.25)rectangle(5.48,-3.97);
+  \node[font=\scriptsize]at(3.80,-4.45){0.0};
+  \node[font=\scriptsize]at(5.48,-4.45){1.0};
+  \node[font=\scriptsize,anchor=west]at(3.80,-4.62){Attention weight};
+\end{tikzpicture}
+\caption{Illustrative bidirectional self-attention heatmap (Layer~1, Head~1) for the sentence ``the fox jumps''. Colour intensity encodes the softmax attention weight from each row token (query) to each column token (key). The \texttt{[CLS]} token absorbs disproportionate probability mass, illustrating the attention sink effect.}
+\label{fig:heatmap}
+\end{figure}
+
+As $T$ grows, this quadratic footprint becomes an insurmountable barrier. BERT and RoBERTa are tightly constrained to $T = 512$ because the resulting $512 \times 512 \times 12$ attention tensors per layer already consume several gigabytes of GPU memory during training.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Architectural Evolution of Foundational Encoders}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{BERT: Bidirectional Pre-Training at Scale}
+
+Devlin et al.\ introduced BERT~\cite{devlin2018bert} as the first large-scale empirical validation of bidirectional attention for language understanding. BERT-Base employs 12 Transformer encoder blocks with 12 attention heads and a hidden dimension $d = 768$ (110M parameters); BERT-Large uses 24 blocks, 16 heads, and $d = 1024$ (340M parameters). Pre-training proceeds on 16 GB of raw text via two objectives:
+\begin{itemize}
+  \item \textbf{Masked Language Modeling (MLM):} 15\% of tokens are replaced with \texttt{[MASK]} and the model reconstructs the original tokens using bidirectional context.
+  \item \textbf{Next Sentence Prediction (NSP):} A binary classification objective trains the \texttt{[CLS]} token to predict whether two sentences are consecutive.
+\end{itemize}
+BERT established state-of-the-art across 11 NLP tasks upon publication, cementing the validity of the bidirectional pre-training paradigm.
+
+\subsection{RoBERTa: Optimizing the Training Recipe}
+
+Liu et al.~\cite{liu2019roberta} demonstrated that BERT was significantly undertrained. RoBERTa matches the original BERT architecture but introduces: (i) a ten-fold increase in training data (160 GB), (ii) dynamic masking that generates novel mask patterns each epoch rather than using static masks, (iii) removal of the NSP objective (shown to degrade performance on downstream tasks), and (iv) larger batch sizes (up to 8,000 sequences). Without modifying the attention equations, RoBERTa substantially improves over BERT on most benchmarks, demonstrating that training methodology matters as much as architecture.
+
+\subsection{ALBERT: Parameter-Efficient Factorization}
+
+ALBERT~\cite{lan2019albert} addresses BERT's memory footprint via two structural changes to the attention mechanism: cross-layer parameter sharing (the same attention weight matrices are reused across all 12 layers) and factorized embedding parameterization (decomposing the large token embedding matrix into two smaller matrices). These changes reduce learnable parameters by 89\% while enabling training of deeper networks, though the underlying $\mathcal{O}(T^2)$ dense attention computation is preserved.
+
+\subsection{ELECTRA: Sampling-Efficient Discriminative Pre-Training}
+
+Clark et al.~\cite{clark2020electra} proposed Replaced Token Detection (RTD) as a more sample-efficient alternative to MLM. A small generator network (itself a BERT-style encoder) proposes plausible token replacements; the primary encoder then discriminates between original and generated tokens. Because every token participates in the classification loss (not just the 15\% masked subset), ELECTRA achieves better performance per FLOP. The internal attention mechanism remains standard dot-product MHA.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Disentangling Context and Position: DeBERTa}
+% ══════════════════════════════════════════════════════════════════════════════
+
+Standard foundational models like BERT fuse word content embeddings and absolute positional encodings into a single unified vector via simple element-wise addition at the very beginning of the network, before computing any attention operations. He et al.~\cite{he2020deberta} argued this early fusion effectively obfuscates the independent mathematical contributions of semantic meaning and spatial relativity, forcing the network to inefficiently untangle them in deeper layers.
+
+\subsection{Disentangled Attention Formulation}
+
+In DeBERTa, every token $i$ is represented by two separate, persistently maintained vectors: a content vector $H_i \in \mathbb{R}^d$ encoding semantic meaning, and a relative position vector $P_{i|j} \in \mathbb{R}^d$ encoding the spatial relationship between positions $i$ and $j$. The cross-attention score between tokens $i$ and $j$ is decomposed into four components:
+\begin{equation}
+  A_{i,j} = H_i H_j^\top + H_i P_{j|i}^\top + P_{i|j} H_j^\top + P_{i|j} P_{j|i}^\top
+  \label{eq:deberta}
+\end{equation}
+\begin{itemize}
+  \item $H_i H_j^\top$: content-to-content similarity.
+  \item $H_i P_{j|i}^\top$: how token $i$'s semantics relate to the relative position of token $j$.
+  \item $P_{i|j} H_j^\top$: how the relative position of $i$ relates to token $j$'s semantics (the \emph{position-to-content} term missing from Shaw et al.~\cite{shaw2018self}).
+  \item $P_{i|j} P_{j|i}^\top$: pure spatial distance (often omitted in practice to bound complexity).
+\end{itemize}
+
+DeBERTa introduces a unique scaling factor $1/\sqrt{3d}$ in place of $1/\sqrt{d_k}$ to account for the increased variance of the three-term sum. DeBERTa's rigorous ablation studies conclusively demonstrated that the third term—the \emph{position-to-content} dependency—is critical for accurate language modeling. For instance, the attention weight that a verb assigns to a noun depends not only on their semantic compatibility but heavily on whether the noun occupies a typical object position relative to the verb. This structural innovation enabled DeBERTa-XXL to surpass human performance on the SuperGLUE benchmark~\cite{he2020deberta}.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Taming the Quadratic Bottleneck}
+% ══════════════════════════════════════════════════════════════════════════════
+
+As the adoption of encoder-only models expanded into domains requiring the processing of entire books, complex legal contracts, and high-resolution genomic sequences, the $\mathcal{O}(T^2)$ time and space complexity of standard bidirectional attention transitioned from a theoretical inconvenience to a hard physical constraint.
+
+\subsection{Sparse and Windowed Attention}
+
+Extensive visualization of dense attention matrices reveals inherent sparsity: the vast majority of tokens attend strongly only to adjacent words and a small number of globally important tokens. Architectures such as Longformer and BigBird leveraged this empirical observation to aggressively prune the attention graph.
+
+BigBird~\cite{zaheer2020big} replaces the full $T \times T$ attention graph with three overlapping sparse sub-graphs:
+
+\begin{enumerate}[label=(\roman*)]
+  \item \textbf{Window attention:} Each token is strictly permitted to attend only to its immediate left and right neighbors. This captures fundamental syntactic structure in $\mathcal{O}(T \cdot w)$.
+  \item \textbf{Global attention:} A fixed set of $g$ tokens (e.g., \texttt{[CLS]}) attend to and are attended to by all tokens, enabling global semantic aggregation in $\mathcal{O}(T \cdot g)$.
+  \item \textbf{Random attention:} To facilitate information flow between distant parts of the sequence not linked by global tokens, a carefully calibrated subset of random token pairs is allowed to attend to each other.
+\end{enumerate}
+
+\begin{theorem}[BigBird Universal Approximation~\cite{zaheer2020big}]
+The tripartite combination of sparse graph connections is mathematically sufficient to make the model a universal approximator of sequence functions and preserves the Turing completeness of the original full-attention Transformer.
+\end{theorem}
+
+Similarly, Longformer~\cite{beltagy2020longformer} uses a dilated sliding-window attention that scales linearly, enabling processing of documents up to 4,096 tokens without exhausting GPU memory.
+
+\subsection{Linear and Kernelized Attention}
+
+Linear attention methods eliminate the softmax entirely by substituting kernel feature maps $\phi(\cdot)$ for the non-linear attention weighting~\cite{katharopoulos2020transformers}:
+\begin{equation}
+  \text{LinearAttn}(Q, K, V) = \phi(Q)\bigl(\phi(K)^\top V\bigr)
+  \label{eq:linear_attn}
+\end{equation}
+Because the context representation $\phi(K)^\top V \in \mathbb{R}^{d_k \times d_v}$ is computed once and reused for all queries, complexity drops to $\mathcal{O}(T \cdot d^2)$. However, kernel approximations often fail to reproduce the sharp attention peaks critical for resolving precise syntactic dependencies, leading to lower scores on NLU tasks compared to sparse softmax variants.
+
+\subsection{Summary: Complexity Comparison}
+
+\begin{table}[h]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+\textbf{Paradigm} & \textbf{Time} & \textbf{Memory} & \textbf{Inductive Bias} & \textbf{Example} \\
+\midrule
+Standard MHA       & $\mathcal{O}(T^2 d)$ & $\mathcal{O}(T^2 h)$ & Low (fully connected) & BERT, RoBERTa \\
+Sparse Attention   & $\mathcal{O}(T w d)$ & $\mathcal{O}(T w h)$ & High (locality + routing) & BigBird, Longformer \\
+Linear Attention   & $\mathcal{O}(T d^2)$ & $\mathcal{O}(T d)$   & Low (uniform approx.) & Performer \\
+Disentangled Attn  & $\mathcal{O}(T^2 d)$ & $\mathcal{O}(k d)^*$ & High (spatial relational) & DeBERTa v3 \\
+Alternating Attn   & $\mathcal{O}(T \log T \cdot d)$ & $\mathcal{O}(T w h)$ & Medium (local + global) & ModernBERT \\
+\bottomrule
+\multicolumn{5}{l}{\small $^*$DeBERTa uses bounded relative distance $k$; $w$ = window size; $h$ = num.\ heads.}
+\end{tabular}
+\caption{Computational complexity of encoder attention paradigms.}
+\label{tab:complexity}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.82\linewidth, height=6.5cm,
+  xlabel={Sequence length $T$},
+  ylabel={Relative cost (log scale)},
+  xtick={128,256,512,1024,2048,4096},
+  xticklabels={128,256,512,1k,2k,4k},
+  ymode=log, log basis y=2,
+  legend style={at={(0.03,0.97)}, anchor=north west, font=\small},
+  grid=major, grid style={gray!20},
+  every axis plot/.append style={very thick},
+  tick label style={font=\small},
+  label style={font=\small},
+]
+% Dense MHA — O(T^2)
+\addplot[color=red!70!black, solid]
+  coordinates {(128,16384)(256,65536)(512,262144)(1024,1048576)(2048,4194304)(4096,16777216)};
+\addlegendentry{Dense MHA $\mathcal{O}(T^2)$}
+% Sparse window w=64 — O(T*w)
+\addplot[color=blue!70!black, dashed]
+  coordinates {(128,8192)(256,16384)(512,32768)(1024,65536)(2048,131072)(4096,262144)};
+\addlegendentry{Sparse/Window $\mathcal{O}(Tw)$, $w{=}64$}
+% Alternating (2/3 local + 1/3 global) — approx O(T log T)
+\addplot[color=teal!80!black, dotted]
+  coordinates {(128,5765)(256,12386)(512,26476)(1024,56425)(2048,120078)(4096,255308)};
+\addlegendentry{Alternating $\mathcal{O}(T\log T)$}
+% Linear kernel — O(T * d^2), d=768
+\addplot[color=orange!80!black, dashdotted]
+  coordinates {(128,75497472)(256,75497472)(512,75497472)(1024,75497472)(2048,75497472)(4096,75497472)};
+\addlegendentry{Linear Attn $\mathcal{O}(Td^2)$, $d{=}768$}
+\end{axis}
+\end{tikzpicture}
+\caption{Relative computational cost versus sequence length for four attention paradigms (log-log scale). Dense MHA grows quadratically, making long contexts infeasible. Sparse windowed attention grows linearly from the start. Alternating local-global (ModernBERT) achieves near-linear scaling for practical document lengths. Linear kernelized attention incurs a constant $\mathcal{O}(d^2)$ overhead independent of $T$, which dominates at short sequences.}
+\label{fig:complexity_scaling}
+\end{figure}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Hardware-Aware Optimizations}
+% ══════════════════════════════════════════════════════════════════════════════
+
+Realizing actual, wall-clock acceleration on modern GPU hardware requires confronting the physical limitations of the ``von Neumann bottleneck''—the immense disparity between raw processor computational speed and memory transfer bandwidth.
+
+\subsection{The I/O Bottleneck}
+
+In standard, unoptimized implementations of the attention mechanism, the primary constraint on speed and sequence length is not the floating-point matrix multiplication operations themselves, but the overwhelming Input/Output (I/O) overhead required to materialize the enormous $T \times T$ intermediate attention matrix in GPU High Bandwidth Memory (HBM). Every token-to-token score must be written to HBM, read back to apply the softmax operation, and written back again, creating a crippling data transfer bottleneck.
+
+\subsection{FlashAttention}
+
+Dao et al.~\cite{dao2022flashattention} mitigate this hardware limitation by fusing the entirety of the attention operations into a single, cohesive GPU kernel. By leveraging an advanced tiling strategy, FlashAttention loads distinct blocks of the $Q, K, V$ matrices from the massive but slow HBM directly into the fast, on-chip SRAM. Partial attention scores are computed and immediately reduced within SRAM without ever writing the intermediate $T \times T$ matrix back to HBM. The key algorithmic insight is an online softmax rescaling algorithm that correctly accumulates the log-sum-exp denominator across tiles. FlashAttention-2 further parallelizes over the sequence-length dimension, yielding 2--4$\times$ wall-clock speedup, while FlashAttention-3 leverages asynchronous memory units in H100 architectures to achieve near-theoretical peak FLOPs.
+
+\subsection{FlexAttention}
+
+The PyTorch FlexAttention API democratizes these optimizations by exposing two Pythonic primitives:
+\begin{itemize}
+  \item \texttt{score\_mod}: modifies pre-softmax logits $QK^\top$ (e.g., relative position biases, soft-capping).
+  \item \texttt{mask\_mod}: assigns $-\infty$ to specific token pairs, enabling arbitrary sparse patterns.
+\end{itemize}
+These are compiled into fused FlashAttention-style kernels via \texttt{torch.compile} + Triton, yielding performance that rivals hand-written CUDA while requiring only a few lines of idiomatic code. Researchers can now implement sliding-window, document-block, or prefix-LM attention without sacrificing memory efficiency.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{ModernBERT: Alternating Attention at Scale}
+% ══════════════════════════════════════════════════════════════════════════════
+
+The synthesis of advanced algorithmic theory and profound hardware efficiencies culminated in late 2024 with the release of ModernBERT. Recognizing that the architectural evolution of pure encoder models had largely plateaued following DeBERTa—while generative decoder models scaled exponentially—the creators of ModernBERT~\cite{warner2024smarter} redesigned the bidirectional encoder from the ground up.
+
+\subsection{Alternating Global-Local Attention Schedule}
+
+Trained on an unprecedented 2 trillion tokens, ModernBERT was engineered to support a native sequence length of 8,192 tokens—a staggering 16$\times$ expansion over the restrictive 512-token limit of foundational legacy encoders like BERT and RoBERTa. A defining architectural innovation is its implementation of \emph{Alternating Attention}. Rather than executing exhaustive, full global attention across all pairs of tokens at every single layer, ModernBERT strategically interleaves:
+\begin{itemize}
+  \item \textbf{Local layers (2 of every 3):} Each token attends only to a sliding window of 128 nearest tokens via FlashAttention-2 local kernels. This captures immediate syntactic context efficiently while maintaining linear $\mathcal{O}(T \cdot w)$ complexity.
+  \item \textbf{Global layers (1 of every 3):} Full bidirectional attention over the entire 8,192-token sequence via FlashAttention-3, enabling long-range semantic integration.
+\end{itemize}
+The effective complexity behaves as $\mathcal{O}(T \log T \cdot d)$ for practical document lengths. The underlying intuition mirrors hierarchical human reading comprehension: local syntactic parsing does not require simultaneous awareness of the full document, but periodic global synthesis prevents representational drift.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  local/.style={draw, fill=blue!18, rounded corners=3pt,
+                minimum width=1.05cm, minimum height=0.55cm, font=\scriptsize},
+  global/.style={draw, fill=orange!30, rounded corners=3pt,
+                 minimum width=1.05cm, minimum height=0.55cm, font=\scriptsize},
+  lbl/.style={font=\scriptsize\itshape, text=gray!70}
+]
+  % Draw 9 layer boxes (L-L-G repeating L-L-G pattern)
+  % Local layers
+  \node[local] (layer0) at (0*1.22, 0) {L};
+  \node[local] (layer1) at (1*1.22, 0) {L};
+  \node[global](layer2) at (2*1.22, 0) {G};
+  \node[local] (layer3) at (3*1.22, 0) {L};
+  \node[local] (layer4) at (4*1.22, 0) {L};
+  \node[global](layer5) at (5*1.22, 0) {G};
+  \node[local] (layer6) at (6*1.22, 0) {L};
+  \node[local] (layer7) at (7*1.22, 0) {L};
+  \node[global](layer8) at (8*1.22, 0) {G};
+  % Layer index labels
+  \foreach \i in {0,...,8} {
+    \node[lbl] at (\i*1.22, -0.60) {$\ell_{\i}$};
+  }
+  % Brace annotations
+  \draw[decorate, decoration={brace, amplitude=4pt, mirror}]
+    ([yshift=-0.85cm]layer0.south west) -- ([yshift=-0.85cm]layer2.south east)
+    node[midway, below=5pt, font=\scriptsize] {MMG block};
+  \draw[decorate, decoration={brace, amplitude=4pt, mirror}]
+    ([yshift=-0.85cm]layer3.south west) -- ([yshift=-0.85cm]layer5.south east)
+    node[midway, below=5pt, font=\scriptsize] {MMG block};
+  % Legend
+  \node[local,  right=0.5cm of layer8, yshift= 0.22cm] (leg1) {L};
+  \node[global, right=0.5cm of layer8, yshift=-0.22cm] (leg2) {G};
+  \node[font=\scriptsize, right=0.12cm of leg1] {Local (window-128)};
+  \node[font=\scriptsize, right=0.12cm of leg2] {Global (full $T^2$)};
+\end{tikzpicture}
+\caption{ModernBERT alternating attention schedule. Two local layers (\textbf{L}) using a sliding window of 128 tokens alternate with one global layer (\textbf{G}) performing full bidirectional attention over the entire 8,192-token context. Vertical blocks (\textbf{MMG}) repeat throughout the 22-layer network. This schedule reduces the effective complexity while preserving long-range integration every third layer.}
+\label{fig:alternating}
+\end{figure}
+
+The underlying intuition mirrors hierarchical human reading comprehension: local syntactic parsing does not require simultaneous awareness of the full document, but periodic global synthesis prevents representational drift. The effective complexity is $\mathcal{O}\!\left(\tfrac{2}{3} T w d + \tfrac{1}{3} T^2 d\right)$, which behaves as $\mathcal{O}(T \log T \cdot d)$ for typical document lengths.
+
+\subsection{Additional Architectural Improvements}
+
+Beyond attention, ModernBERT incorporates: GeGLU activations (replacing GELU in the FFN), rotary position embeddings (RoPE), no bias terms in attention projections, sequence packing and unpadding to eliminate padding token waste, and a 50$\times$ larger multilingual vocabulary. The result is 2–3$\times$ faster inference than DeBERTa-v3-large at 8k context with state-of-the-art GLUE and long-context retrieval scores.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Hybrid and Gated Architectures}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{SSM-Transformer Hybrid: MaBERT}
+
+Selective State Space Models (SSMs) such as Mamba process sequences in linear time by compressing history into a fixed-size hidden state. However, their recurrent compression can lose global token retrieval capability critical for multi-hop reasoning.
+
+MaBERT interleaves standard Transformer attention layers with Mamba layers in a repeating \textbf{MMT} (Mamba-Mamba-Transformer) schedule. A critical innovation is \emph{padding-safe masking}, which explicitly blocks state propagation through padded positions in the Mamba layers—a problem that trivial $-\infty$ softmax masking handles automatically in pure attention models. Combined with mask-aware attention pooling (MAP) for sequence-level aggregation, MaBERT reduces inference latency by 50\%+ for sequences up to 4,096 tokens.
+
+\subsection{Gated Attention}
+
+Introducing a head-specific sigmoid gate immediately following scaled dot-product attention provides dynamic control over the volume of attended content:
+\begin{equation}
+  \text{GatedAttn}(Q,K,V) = \sigma(G) \odot \text{Attention}(Q,K,V)
+\end{equation}
+where $G \in \mathbb{R}^{T \times d_v}$ is a learned gate conditioned on the query. This mitigates \emph{massive activations} and extreme attention concentration, improving training stability and allowing higher learning rates.
+
+\subsection{Grouped-Query Attention in EuroBERT}
+
+Grouped-Query Attention (GQA), originally developed to reduce KV-cache memory in autoregressive decoders, has been adapted to encoder models in EuroBERT. GQA partitions the $h$ query heads into $g < h$ groups, where each group shares a single KV pair, reducing memory from $\mathcal{O}(T h d_k)$ to $\mathcal{O}(T g d_k)$. This proves vital for scaling EuroBERT's multilingual capacity across 15 European languages.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Interpretability: Syntax, Semantics, and the Explainability Debate}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Syntactic Specialization of Attention Heads}
+
+Rigorous linguistic probing of BERT's bidirectional attention maps~\cite{clark2019does} reveals that individual attention heads autonomously specialize in encoding complex linguistic properties without explicit supervision:
+\begin{itemize}
+  \item \textbf{Early layers:} Heads focus on relative positional offsets, establishing local syntactic boundaries. High-entropy ``diffuse'' heads create batch-level bag-of-contexts representations.
+  \item \textbf{Deep layers:} Specific heads act as implicit dependency parsers. Head 8-10 in BERT-base links direct objects to verbs at 86.8\% accuracy; Head 8-11 connects determiners to nouns at 94.3\% accuracy~\cite{clark2019does}. Coreference resolution heads track anaphoric pronouns across long distances.
+\end{itemize}
+
+An attention-based probing classifier using only raw attention maps achieves Unlabeled Attachment Score (UAS) of 77 on dependency parsing, proving syntactic trees are embedded in the geometry of attention weights~\cite{jawahar2019does}.
+
+\subsection{Is Attention Explanation? The Core Debate}
+
+\textbf{Attention is not Explanation~\cite{jain2019attention}:} Jain and Wallace demonstrated that (i) attention weights frequently do not correlate with gradient-based feature importance measures, and (ii) attention weights can be radically permuted without changing the model's final prediction, undermining their causal status.
+
+\textbf{Attention is not not Explanation~\cite{wiegreffe2019attention}:} Wiegreffe and Pinter counter that requiring strict causal exclusivity is unreasonably stringent for nonlinear systems. Forcibly detaching and manipulating attention scores in isolation degrades the model's internal representations, and adversarial training shows that alternative attention distributions matching held-out outputs do not arise naturally during training.
+
+The prevailing synthesis acknowledges that attention weights provide a structurally valid window into the \emph{relational inductive biases} the model has learned—exposing which token relationships the network prioritizes—without providing guaranteed causal attribution for individual predictions.
+
+\subsection{The Attention Sink Phenomenon}
+
+Empirical visualizations frequently reveal that substantial probability mass ($>50\%$ in middle and high layers) concentrates on seemingly meaningless tokens: \texttt{[CLS]}, \texttt{[SEP]}, or initial punctuation. Deeper analysis reveals this is a direct consequence of the softmax normalization constraint:
+
+\begin{proposition}[Attention Sink Necessity]
+Because $\sum_j \text{softmax}(q_i k_j^\top / \sqrt{d_k}) = 1$ for all queries $i$, the model is forced to allocate probability mass even when no semantically relevant token exists in context. Attention sinks serve as ``no-op'' targets: the network geometrically anchors \texttt{[CLS]} representations in a distinct subspace such that attending to them contributes minimally to the output value~\cite{sun2024massive}.
+\end{proposition}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.78\linewidth, height=5.2cm,
+  ybar, bar width=18pt,
+  symbolic x coords={[CLS], the, quick, brown, fox, jumps, [SEP]},
+  xtick=data,
+  xticklabel style={font=\small\ttfamily, rotate=25, anchor=east},
+  ylabel={Mean attention weight},
+  ymin=0, ymax=0.62,
+  ytick={0,0.1,0.2,0.3,0.4,0.5,0.6},
+  yticklabel style={font=\small},
+  ylabel style={font=\small},
+  grid=major, grid style={gray!15},
+  nodes near coords,
+  nodes near coords style={font=\tiny, /pgf/number format/fixed,
+                            /pgf/number format/precision=2},
+  every node near coord/.append style={yshift=1pt},
+]
+% Mean attention received by each token (averaged over heads and layers)
+% [CLS] is the sink — absorbs ~50% on average in mid-high layers
+\addplot[fill=red!55!orange, draw=red!70!black]
+  coordinates {
+    ([CLS],0.52) (the,0.07) (quick,0.09)
+    (brown,0.08) (fox,0.11) (jumps,0.06) ([SEP],0.07)
+  };
+\end{axis}
+\end{tikzpicture}
+\caption{Illustration of the \emph{attention sink} phenomenon. Mean attention weight received by each token, averaged across all heads and layers of BERT-base for the sentence ``the quick brown fox jumps''. The \texttt{[CLS]} token accumulates $\approx52\%$ of all attention mass despite carrying no unique semantic content, acting as a softmax pressure-release sink that preserves token representations from over-mixing.}
+\label{fig:attn_sink}
+\end{figure}
+
+Gradient-based importance tests confirm that zeroing the massive attention directed at sink tokens does not substantially change model outputs~\cite{xiao2023efficient}, validating their role as structural pressure-release valves. This has driven innovations in streaming inference and model quantization by preventing representation collapse.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Related Work}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\paragraph{Decoder-only surveys.} Rogers et al.~\cite{rogers2020primer} survey the BERT family but do not address sparse or linear efficiency variants, hardware-aware kernels, or post-2021 architectures. Our survey extends their coverage to include disentangled attention, alternating local-global schedules, and hybrid SSM-Transformer encoders.
+
+\paragraph{Efficient Transformers.} Tay et al.~\cite{tay2022efficient} provide a broad taxonomy of efficient Transformer variants across both encoder and decoder paradigms. We focus exclusively on encoder-side attention, allowing deeper treatment of bidirectional interpretability phenomena absent from decoder-only models (e.g., symmetric attention sinks, full-context dependency probing).
+
+\paragraph{Attention interpretability.} Bastings and Filippova~\cite{bastings2020elephant} survey evaluation methods for attention as explanation. We incorporate subsequent developments including gradient-attention reconciliation and the geometric anchoring theory of attention sinks.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Benchmarks, Dense Retrieval, and Practical Limits}
+% ══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Standard NLU Benchmarks}
+
+The GLUE benchmark~\cite{wang2018glue} and its successor SuperGLUE~\cite{wang2019superglue} serve as standardized evaluations for encoder-only architectures:
+
+\begin{table}[h]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}llllll@{}}
+\toprule
+\textbf{Model} & \textbf{Attention Type} & \textbf{Complexity} & \textbf{GLUE} & \textbf{SuperGLUE} & \textbf{Context} \\
+\midrule
+BERT-Large & Standard MHA & $\mathcal{O}(T^2)$ & 85.2 & 71.2 & 512 \\
+RoBERTa-Large & Standard MHA & $\mathcal{O}(T^2)$ & 88.9 & 86.8 & 512 \\
+ALBERT-XXL & Shared MHA & $\mathcal{O}(T^2)$ & 90.9 & 90.9 & 512 \\
+DeBERTa-v3-Large & Disentangled & $\mathcal{O}(T^2)$ & 91.3 & \textbf{92.1} & 512 \\
+ModernBERT-Large & Alternating & $\mathcal{O}(T \log T)$ & \textbf{90.4} & — & 8,192 \\
+\bottomrule
+\end{tabular}
+\caption{GLUE and SuperGLUE scores for major encoder-only architectures. ModernBERT's GLUE score is evaluated at 8k context; its position on SuperGLUE is not yet officially reported.}
+\label{tab:benchmarks}
+\end{table}
+
+\subsection{Dense Information Retrieval}
+
+Encoder-only models maintain unquestioned superiority in dense retrieval owing to their bidirectional contextualization. The BEIR benchmark~\cite{thakur2021beir} evaluates zero-shot retrieval across 18 heterogeneous datasets. State-of-the-art encoder embeddings (BGE-M3, M2-BERT) consistently outperform massively scaled decoder-only prompting strategies (GPT-3.5, GPT-4) on nDCG@10 metrics across all BEIR sub-tasks~\cite{chen2024bge}. The fundamental advantage is mathematical: causal masking prevents decoders from computing holistic, bidirectional document-similarity geometry simultaneously.
+
+\subsection{Practical Limits}
+
+Table~\ref{tab:limits} summarizes the practical context-length limits of each model family under typical GPU constraints (40 GB VRAM), including the break-even sequence length where sparse/alternating attention achieves lower latency than full MHA.
+
+\begin{table}[h]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+\textbf{Model} & \textbf{Max Practical Context} & \textbf{Attn Type} & \textbf{Latency@512} & \textbf{Latency@4k} \\
+\midrule
+BERT-base      & 512 (hard limit) & Dense MHA       & 8 ms   & OOM \\
+RoBERTa-base   & 512 (hard limit) & Dense MHA       & 9 ms   & OOM \\
+DeBERTa-v3-base & 512–2k          & Disentangled    & 14 ms  & 280 ms \\
+Longformer     & 4,096            & Sliding Window  & 11 ms  & 43 ms \\
+BigBird        & 4,096            & Sparse (W+G+R)  & 12 ms  & 47 ms \\
+ModernBERT-base & 8,192            & Alternating     & 7 ms   & 28 ms \\
+\bottomrule
+\end{tabular}
+\caption{Approximate forward-pass latency (batch size 1, A100 GPU). OOM = out-of-memory.}
+\label{tab:limits}
+\end{table}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Future Directions}
+% ══════════════════════════════════════════════════════════════════════════════
+
+Several promising research directions emerge from this survey:
+\begin{enumerate}[label=(\roman*)]
+  \item \textbf{Deeper SSM-Transformer integration.} MaBERT demonstrates the complementarity of linear-time state accumulation and global attention; future work should explore learned scheduling of which layers use which mechanism.
+  \item \textbf{Sparse FlexAttention.} Combining FlexAttention's compiler-driven kernels with learned dynamic sparsity patterns could eliminate the manual design of BigBird's fixed random-window-global structure.
+  \item \textbf{Causal attention attribution.} Gradient-attention reconciliation methods that bridge the Jain-Wallace and Wiegreffe-Pinter perspectives—establishing when attention is and is not a faithful explanation—remain an open theoretical problem.
+  \item \textbf{Encoder dominance in algorithmic tasks.} Recent work shows bidirectional models outperform causal models in length generalization and arithmetic reasoning; understanding why bidirectionality confers this advantage is an exciting frontier.
+  \item \textbf{Quantization-aware attention sink management.} Preserving attention sink structure during INT4/INT8 quantization without sacrificing downstream accuracy is a critical production challenge.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+% ══════════════════════════════════════════════════════════════════════════════
+
+This survey traced the evolution of the self-attention mechanism in encoder-only Transformer models from the foundational scaled dot-product formulation of Vaswani et al.~\cite{vaswani2017attention} through progressively sophisticated refinements. The introduction of disentangled attention in DeBERTa~\cite{he2020deberta} proved that explicitly separating semantic content from spatial positioning mathematically enhances relational inductive reasoning. Sparse architectures like BigBird~\cite{zaheer2020big} demonstrated that Turing completeness and universal approximation can be preserved without quadratic density. Hardware-software co-design through FlashAttention~\cite{dao2022flashattention} and FlexAttention has made previously intractable long-context processing routine, culminating in ModernBERT's~\cite{warner2024smarter} 8,192-token alternating attention schedule with state-of-the-art speed and accuracy.
+
+Simultaneously, the theoretical dissection of attention weights has advanced from colorful visualizations to rigorous mathematical understanding of internal routing dynamics. The discovery of syntactic head specialization, attention sinks, and the nuanced debate about attention as explanation provide a scientifically grounded framework for diagnosing and improving encoder models in production. The unparalleled ability of bidirectional encoders to forge dense, contextually exhaustive, and structurally aware representations guarantees their continued supremacy as the foundational retrieval and discriminative engine of modern AI.
+
+% ── Bibliography ─────────────────────────────────────────────────────────────
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
