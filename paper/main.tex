@@ -162,75 +162,59 @@ Standard multi-head self-attention on a sequence of length $T$ with model dimens
 \begin{figure}[h]
 \centering
 \begin{tikzpicture}
-  \def\cs{0.72}
-  % Row 0: [CLS] query
-  \fill[blue!40!white](0*\cs,-0*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](0*\cs,-0*\cs)rectangle++(\cs,\cs);
-  \fill[blue!15!white](1*\cs,-0*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](1*\cs,-0*\cs)rectangle++(\cs,\cs);
-  \fill[blue!15!white](2*\cs,-0*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](2*\cs,-0*\cs)rectangle++(\cs,\cs);
-  \fill[blue!15!white](3*\cs,-0*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](3*\cs,-0*\cs)rectangle++(\cs,\cs);
-  \fill[blue!15!white](4*\cs,-0*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](4*\cs,-0*\cs)rectangle++(\cs,\cs);
+  \def\cs{0.75}
+  % Row 0: [CLS]
+  \fill[blue!40!white](0*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](1*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](2*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](3*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](4*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-0*\cs)rectangle++(\cs,-\cs);
   % Row 1: the
-  \fill[blue!55!white](0*\cs,-1*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](0*\cs,-1*\cs)rectangle++(\cs,\cs);
-  \fill[blue!20!white](1*\cs,-1*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](1*\cs,-1*\cs)rectangle++(\cs,\cs);
-  \fill[blue!10!white](2*\cs,-1*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](2*\cs,-1*\cs)rectangle++(\cs,\cs);
-  \fill[blue!10!white](3*\cs,-1*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](3*\cs,-1*\cs)rectangle++(\cs,\cs);
-  \fill[blue!5!white] (4*\cs,-1*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](4*\cs,-1*\cs)rectangle++(\cs,\cs);
+  \fill[blue!55!white](0*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-1*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!20!white](1*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-1*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](2*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-1*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](3*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-1*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!5!white] (4*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-1*\cs)rectangle++(\cs,-\cs);
   % Row 2: fox
-  \fill[blue!30!white](0*\cs,-2*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](0*\cs,-2*\cs)rectangle++(\cs,\cs);
-  \fill[blue!8!white] (1*\cs,-2*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](1*\cs,-2*\cs)rectangle++(\cs,\cs);
-  \fill[blue!35!white](2*\cs,-2*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](2*\cs,-2*\cs)rectangle++(\cs,\cs);
-  \fill[blue!20!white](3*\cs,-2*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](3*\cs,-2*\cs)rectangle++(\cs,\cs);
-  \fill[blue!7!white] (4*\cs,-2*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](4*\cs,-2*\cs)rectangle++(\cs,\cs);
+  \fill[blue!30!white](0*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-2*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!8!white] (1*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-2*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!35!white](2*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-2*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!20!white](3*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-2*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!7!white] (4*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-2*\cs)rectangle++(\cs,-\cs);
   % Row 3: jumps
-  \fill[blue!25!white](0*\cs,-3*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](0*\cs,-3*\cs)rectangle++(\cs,\cs);
-  \fill[blue!7!white] (1*\cs,-3*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](1*\cs,-3*\cs)rectangle++(\cs,\cs);
-  \fill[blue!28!white](2*\cs,-3*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](2*\cs,-3*\cs)rectangle++(\cs,\cs);
-  \fill[blue!32!white](3*\cs,-3*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](3*\cs,-3*\cs)rectangle++(\cs,\cs);
-  \fill[blue!8!white] (4*\cs,-3*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](4*\cs,-3*\cs)rectangle++(\cs,\cs);
+  \fill[blue!25!white](0*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!7!white] (1*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!28!white](2*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!32!white](3*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!8!white] (4*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-3*\cs)rectangle++(\cs,-\cs);
   % Row 4: [SEP]
-  \fill[blue!50!white](0*\cs,-4*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](0*\cs,-4*\cs)rectangle++(\cs,\cs);
-  \fill[blue!10!white](1*\cs,-4*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](1*\cs,-4*\cs)rectangle++(\cs,\cs);
-  \fill[blue!12!white](2*\cs,-4*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](2*\cs,-4*\cs)rectangle++(\cs,\cs);
-  \fill[blue!12!white](3*\cs,-4*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](3*\cs,-4*\cs)rectangle++(\cs,\cs);
-  \fill[blue!16!white](4*\cs,-4*\cs)rectangle++(\cs,\cs);\draw[gray!30,thin](4*\cs,-4*\cs)rectangle++(\cs,\cs);
-  % Column labels
-  \node[font=\footnotesize\ttfamily,rotate=40,anchor=west]at(0*\cs+0.36,0.55){[CLS]};
-  \node[font=\footnotesize\ttfamily,rotate=40,anchor=west]at(1*\cs+0.36,0.55){the};
-  \node[font=\footnotesize\ttfamily,rotate=40,anchor=west]at(2*\cs+0.36,0.55){fox};
-  \node[font=\footnotesize\ttfamily,rotate=40,anchor=west]at(3*\cs+0.36,0.55){jumps};
-  \node[font=\footnotesize\ttfamily,rotate=40,anchor=west]at(4*\cs+0.36,0.55){[SEP]};
-  % Row labels
-  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.08,-0*\cs-0.36){[CLS]};
-  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.08,-1*\cs-0.36){the};
-  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.08,-2*\cs-0.36){fox};
-  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.08,-3*\cs-0.36){jumps};
-  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.08,-4*\cs-0.36){[SEP]};
-  % Colour bar (explicit steps)
-  \fill[blue!0!white]  (3.80,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!5!white]  (3.88,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!10!white] (3.96,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!15!white] (4.04,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!20!white] (4.12,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!25!white] (4.20,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!30!white] (4.28,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!35!white] (4.36,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!40!white] (4.44,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!45!white] (4.52,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!50!white] (4.60,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!55!white] (4.68,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!60!white] (4.76,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!65!white] (4.84,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!70!white] (4.92,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!75!white] (5.00,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!80!white] (5.08,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!85!white] (5.16,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!90!white] (5.24,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!95!white] (5.32,-4.25)rectangle++(0.08,0.28);
-  \fill[blue!100!white](5.40,-4.25)rectangle++(0.08,0.28);
-  \draw(3.80,-4.25)rectangle(5.48,-3.97);
-  \node[font=\scriptsize]at(3.80,-4.45){0.0};
-  \node[font=\scriptsize]at(5.48,-4.45){1.0};
-  \node[font=\scriptsize,anchor=west]at(3.80,-4.62){Attention weight};
+  \fill[blue!50!white](0*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](1*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!12!white](2*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!12!white](3*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!16!white](4*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  % Column labels (Keys)
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(0*\cs+0.2,0.1){[CLS]};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(1*\cs+0.2,0.1){the};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(2*\cs+0.2,0.1){fox};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(3*\cs+0.2,0.1){jumps};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(4*\cs+0.2,0.1){[SEP]};
+  % Row labels (Queries)
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-0*\cs-0.5*\cs){[CLS]};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-1*\cs-0.5*\cs){the};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-2*\cs-0.5*\cs){fox};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-3*\cs-0.5*\cs){jumps};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-4*\cs-0.5*\cs){[SEP]};
+  % Colour bar (positioned below)
+  \begin{scope}[shift={(0.5*\cs, -5.2*\cs)}]
+    \foreach \x in {0,5,...,100} {
+      \fill[blue!\x!white] (\x/60, 0) rectangle ++(5/60, 0.25);
+    }
+    \draw (0,0) rectangle (105/60, 0.25);
+    \node[font=\tiny] at (0, -0.2) {0.0};
+    \node[font=\tiny] at (105/60, -0.2) {1.0};
+    \node[font=\scriptsize, anchor=west] at (2.0, 0.12) {Attention weight};
+  \end{scope}
 \end{tikzpicture}
 \caption{Illustrative bidirectional self-attention heatmap (Layer~1, Head~1) for the sentence ``the fox jumps''. Colour intensity encodes the softmax attention weight from each row token (query) to each column token (key). The \texttt{[CLS]} token absorbs disproportionate probability mass, illustrating the attention sink effect.}
 \label{fig:heatmap}
