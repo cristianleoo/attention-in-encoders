@@ -9,6 +9,7 @@ const MODELS = [
   { id: "bert-base-uncased",           label: "BERT-base",       desc: "12L · 12H · 110M · 512 ctx",   maxLen: 512 },
   { id: "roberta-base",                label: "RoBERTa-base",    desc: "12L · 12H · 125M · 512 ctx",   maxLen: 512 },
   { id: "microsoft/deberta-v3-base",   label: "DeBERTa v3",      desc: "12L · 12H · Disentangled",     maxLen: 2048 },
+  { id: "google/bigbird-roberta-base", label: "BigBird",         desc: "Sparse · Block Sparse · 4k",   maxLen: 4096 },
   { id: "answerdotai/ModernBERT-base", label: "ModernBERT",      desc: "22L · 12H · Alternating · 8k", maxLen: 8192 },
   { id: "BAAI/bge-m3",                 label: "BGE-M3",          desc: "Dense Retrieval · 8192 ctx",   maxLen: 8192 },
   { id: "Alibaba-NLP/gte-modernbert-base", label: "GTE-ModernBERT", desc: "Retrieval · ModernBERT arch", maxLen: 8192 },
@@ -666,8 +667,23 @@ export default function Home() {
             <section className="glass" style={{ padding: 22 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
                 <div>
-                  <h2 style={{ fontSize: 16, fontWeight: 700 }}>Layer {selLayer + 1} · Head {selHead + 1}</h2>
-                  <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{selectedModel.label} — hover cells for exact values</p>
+                  <h2 style={{ fontSize: 16, fontWeight: 700 }}>
+                    Layer {selLayer + 1} · {selHead === -1 ? "Average" : `Head ${selHead + 1}`}
+                  </h2>
+                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                    <p style={{ fontSize: 11, color: "var(--muted)" }}>{selectedModel.label} — hover cells for values</p>
+                    {/* Architectural Insights */}
+                    {modelId.includes("ModernBERT") && (
+                      <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: (selLayer + 1) % 3 === 0 ? "rgba(139,92,246,0.2)" : "rgba(59,130,246,0.2)", color: (selLayer + 1) % 3 === 0 ? "#c4b5fd" : "#93c5fd", fontWeight: 700, border: "1px solid currentColor" }}>
+                        {(selLayer + 1) % 3 === 0 ? "GLOBAL LAYER" : "LOCAL WINDOW LAYER"}
+                      </span>
+                    )}
+                    {modelId.includes("bigbird") && (
+                      <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: "rgba(16,185,129,0.2)", color: "#6ee7b7", fontWeight: 700, border: "1px solid currentColor" }}>
+                        SPARSE BLOCK ATTENTION
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--font-mono)", textAlign: "right" }}>
                   {attnData.tokens.length} tokens

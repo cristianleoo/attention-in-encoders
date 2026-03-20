@@ -450,23 +450,39 @@ Beyond attention, ModernBERT incorporates: GeGLU activations (replacing GELU in 
 \section{Hybrid and Gated Architectures}
 % ══════════════════════════════════════════════════════════════════════════════
 
+As the limitations of pure self-attention became apparent—specifically the $\mathcal{O}(T^2)$ complexity and the lack of explicit gating—researchers have explored hybridizing attention with other neural primitives.
+
 \subsection{SSM-Transformer Hybrid: MaBERT}
 
-Selective State Space Models (SSMs) such as Mamba process sequences in linear time by compressing history into a fixed-size hidden state. However, their recurrent compression can lose global token retrieval capability critical for multi-hop reasoning.
+Selective State Space Models (SSMs), such as Mamba, process sequences in linear time by compressing context into a hidden state. However, pure SSMs often struggle with tasks requiring precise, global token-to-token retrieval. MaBERT addresses this by interleaving Mamba layers with standard Transformer attention in a repeating schedule.
 
-MaBERT interleaves standard Transformer attention layers with Mamba layers in a repeating \textbf{MMT} (Mamba-Mamba-Transformer) schedule. A critical innovation is \emph{padding-safe masking}, which explicitly blocks state propagation through padded positions in the Mamba layers—a problem that trivial $-\infty$ softmax masking handles automatically in pure attention models. Combined with mask-aware attention pooling (MAP) for sequence-level aggregation, MaBERT reduces inference latency by 50\%+ for sequences up to 4,096 tokens.
+A critical challenge in bidirectional SSMs is the handling of padding. While self-attention uses $-\infty$ masks to ignore padding, SSM states can be "polluted" by padding tokens during the forward and backward passes. MaBERT introduces \emph{padding-safe masking}, which explicitly blocks state propagation through padded positions. Combined with mask-aware attention pooling (MAP), MaBERT achieves competitive GLUE scores while reducing inference latency by up to 50\% for sequences of 4,096 tokens.
 
-\subsection{Gated Attention}
+\subsection{Gated Attention and Massive Activations}
 
-Introducing a head-specific sigmoid gate immediately following scaled dot-product attention provides dynamic control over the volume of attended content:
+Pure attention mechanisms lack a mechanism to regulate the "volume" of information flowing through a head. Gated Attention introduces a query-dependent sigmoid gate:
 \begin{equation}
-  \text{GatedAttn}(Q,K,V) = \sigma(G) \odot \text{Attention}(Q,K,V)
+  \text{GatedAttn}(Q,K,V) = \sigma(W_g Q + b_g) \odot \text{Attention}(Q,K,V)
 \end{equation}
-where $G \in \mathbb{R}^{T \times d_v}$ is a learned gate conditioned on the query. This mitigates \emph{massive activations} and extreme attention concentration, improving training stability and allowing higher learning rates.
+This architectural change was motivated by the observation of \emph{massive activations} in Transformer layers, where a small number of features exhibit outlier magnitudes. Gating provides a learnable pressure-release valve, improving training stability and allowing for the use of higher learning rates in extremely deep encoder stacks.
 
-\subsection{Grouped-Query Attention in EuroBERT}
+\subsection{Grouped-Query Attention (GQA) in Encoders}
 
-Grouped-Query Attention (GQA), originally developed to reduce KV-cache memory in autoregressive decoders, has been adapted to encoder models in EuroBERT. GQA partitions the $h$ query heads into $g < h$ groups, where each group shares a single KV pair, reducing memory from $\mathcal{O}(T h d_k)$ to $\mathcal{O}(T g d_k)$. This proves vital for scaling EuroBERT's multilingual capacity across 15 European languages.
+Grouped-Query Attention (GQA), though popular in decoders, has found success in encoder models like EuroBERT. By grouping $h$ query heads to share $g$ key-value pairs ($g < h$), the model reduces the memory footprint of intermediate attention tensors. In EuroBERT, this reduction was essential for scaling the model's capacity to support 15 European languages simultaneously without exceeding hardware memory limits during the pre-training phase.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Practical Implications: Subword Fragmentation}
+% ══════════════════════════════════════════════════════════════════════════════
+
+A critical, often overlooked constraint on the effectiveness of bidirectional attention is the choice of subword tokenization (e.g., Byte-Pair Encoding or WordPiece). When a model's vocabulary is a poor fit for the input domain, words are fragmented into multiple sub-tokens (e.g., \texttt{tokenization} $\rightarrow$ \texttt{token} + \texttt{\#\#ization}).
+
+\subsection{The Attention Penalty}
+
+Each split token dilutes the model's ``attention budget.'' Instead of a single query vector representing a semantic concept, the model must coordinate attention across multiple vectors to reconstruct the original meaning. Empirical analysis using the Token Flow methodology (see Section~\ref{sec:flow}) reveals that early layers in highly fragmented sequences are often occupied exclusively with intra-word reconstruction rather than global syntactic parsing. This effectively reduces the functional depth of the model.
+
+\subsection{Fragmentation Ratio as a Diagnostic}
+
+We define the \emph{Fragmentation Ratio} as $T / W$, where $T$ is the number of tokens and $W$ is the number of whitespace-separated words. A ratio $> 1.5$ typically indicates a severe mismatch between the model's pre-trained vocabulary and the target domain (e.g., legal or medical jargon). Modern architectures like ModernBERT and BGE-M3 mitigate this by employing significantly larger vocabularies (over 50,000 tokens), preserving semantic density and allowing the attention mechanism to focus on high-level reasoning from the first layer.
 
 % ══════════════════════════════════════════════════════════════════════════════
 \section{Interpretability: Syntax, Semantics, and the Explainability Debate}
@@ -532,6 +548,19 @@ Because $\sum_j \text{softmax}(q_i k_j^\top / \sqrt{d_k}) = 1$ for all queries $
 \end{figure}
 
 Gradient-based importance tests confirm that zeroing the massive attention directed at sink tokens does not substantially change model outputs~\cite{xiao2023efficient}, validating their role as structural pressure-release valves. This has driven innovations in streaming inference and model quantization by preventing representation collapse.
+
+\subsection{Methodologies for Practical Analysis}
+
+To facilitate the diagnostic study of these phenomena, we employ three specific visualization methodologies in our interactive explorer:
+
+\paragraph{Layer-Averaged Heatmaps.} \label{sec:average}
+While individual heads specialize, the ensemble behavior of a layer is often more representative of the model's general focus. Averaging attention weights across all $h$ heads for a given layer $\ell$ provides a denoised view of the global information routing, exposing dominant syntactic diagonals and persistent attention sinks.
+
+\paragraph{Bipartite Token Flow.} \label{sec:flow}
+To analyze how a specific token $i$ distributes its attention budget, we use a bipartite graph mapping query token $i$ to all key tokens $j \in [1, T]$. Line thickness and opacity are scaled by $A_{i,j}$. This view is particularly effective for diagnosing subword fragmentation penalties (Section 10) and identifying coreference links.
+
+\paragraph{Synchronized Model Comparison.}
+By rendering heatmaps for two different architectures (e.g., BERT vs. ModernBERT) side-by-side with synchronized layer and head selection, researchers can empirically observe the transition from quadratic density to alternating sparsity.
 
 % ══════════════════════════════════════════════════════════════════════════════
 \section{Related Work}
