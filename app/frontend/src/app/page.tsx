@@ -283,7 +283,7 @@ export default function Home() {
   const [attnData, setAttnData] = useState<AttData | null>(null);
   const [attnData2, setAttnData2] = useState<AttData | null>(null);
   const [selLayer, setSelLayer] = useState(0);
-  const [selHead, setSelHead] = useState(0);
+  const [selHead, setSelHead] = useState(-1);
   const [selToken, setSelToken] = useState(0);
 
   const [limitsLoading, setLimitsLoading] = useState(false);
@@ -354,16 +354,31 @@ export default function Home() {
   // ── Stats for current head ──
   const stats = useMemo(() => {
     if (!attnData) return null;
-    const matrix = attnData.attention[selLayer][selHead];
+    const layerArr = attnData.attention[selLayer];
+    let matrix: number[][];
+
+    if (selHead === -1) {
+      // Average across all heads
+      const numHeads = layerArr.length;
+      const seqLen = layerArr[0].length;
+      matrix = Array.from({ length: seqLen }, (_, i) => 
+        Array.from({ length: seqLen }, (_, j) => 
+          layerArr.reduce((sum, h) => sum + h[i][j], 0) / numHeads
+        )
+      );
+    } else {
+      matrix = layerArr[selHead];
+    }
+
     const avgEnt = matrix.reduce((s, r) => s + entropy(r), 0) / matrix.length;
     const flat = matrix.flat();
     const maxVal = Math.max(...flat);
     let mi = 0, mj = 0;
     matrix.forEach((row, i) => row.forEach((v, j) => { if (v > matrix[mi][mj]) { mi = i; mj = j; } }));
-    return { avgEnt, maxVal, topFrom: attnData.tokens[mi], topTo: attnData.tokens[mj] };
+    return { avgEnt, maxVal, topFrom: attnData.tokens[mi], topTo: attnData.tokens[mj], matrix };
   }, [attnData, selLayer, selHead]);
 
-  const currentMatrix = attnData?.attention[selLayer]?.[selHead] ?? [];
+  const currentMatrix = stats?.matrix ?? [];
   const flowRow = currentMatrix[selToken] ?? [];
 
   // ── Tab button ──
@@ -612,6 +627,22 @@ export default function Home() {
               <div>
                 <div style={{ fontSize: 10, fontWeight: 600, color: "var(--muted)", letterSpacing: "0.08em", marginBottom: 8 }}>HEAD</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <button 
+                    onClick={() => setSelHead(-1)}
+                    style={{
+                      gridColumn: "span 2",
+                      padding: "8px",
+                      borderRadius: 8,
+                      border: "1px solid",
+                      borderColor: selHead === -1 ? "#8b5cf6" : "var(--border)",
+                      background: selHead === -1 ? "rgba(139,92,246,0.15)" : "rgba(255,255,255,0.03)",
+                      color: selHead === -1 ? "#c4b5fd" : "var(--muted)",
+                      fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    Layer Average
+                  </button>
                   {attnData.attention[selLayer].map((hm, hi) => (
                     <div key={hi} style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
                       <HeadThumb matrix={hm} active={selHead === hi} onClick={() => setSelHead(hi)} />
@@ -643,6 +674,36 @@ export default function Home() {
                 </div>
               </div>
               <Heatmap tokens={attnData.tokens} matrix={currentMatrix} />
+
+              <div style={{ marginTop: 32, borderTop: "1px solid var(--border)", paddingTop: 24 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-purple)", marginBottom: 12 }}>HOW TO INTERPRET PATTERNS</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>VERTICAL LINES (SINKS)</div>
+                    <p style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5 }}>
+                      Probability mass concentrated on <strong>[CLS]</strong> or punctuation. These tokens act as "pressure release valves" when no semantic relationship is found.
+                    </p>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>DIAGONAL LINES (LOCALITY)</div>
+                    <p style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5 }}>
+                      Strong attention to immediate neighbors. High in early layers, this indicates the model is parsing <strong>local syntax</strong> and grammar.
+                    </p>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>SPARSE DOTS (GLOBAL)</div>
+                    <p style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5 }}>
+                      Strong links between distant words. Often represents <strong>coreference resolution</strong> (e.g., a pronoun attending to its noun) or entity relationships.
+                    </p>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>BLOCK PATTERNS</div>
+                    <p style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5 }}>
+                      A cluster of tokens attending to each other. Typical for <strong>multi-word entities</strong> or phrases that the model treats as a single semantic unit.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </section>
           </div>
         )}
