@@ -1,5 +1,5 @@
 [project]
-name = "attention-app"
+name = "attention"
 version = "0.1.0"
 description = "Attention in Encoders Viewer App"
 requires-python = ">=3.10"
