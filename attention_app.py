@@ -14,19 +14,36 @@ def run_backend(root):
 
 def run_frontend(root):
     import shutil
+    import pathlib
+
     if not shutil.which("npm"):
         print("\n❌ CRITICAL ERROR: Node.js (npm) is missing from your system!")
         print("Required Action: Please install Node.js from https://nodejs.org/ to serve the frontend UI.")
         print("Exiting...\n")
         os._exit(1)
 
-    frontend_dir = os.path.join(root, "app", "frontend")
-    node_modules_dir = os.path.join(frontend_dir, "node_modules")
+    source_frontend_dir = os.path.join(root, "app", "frontend")
+    
+    # Establish a user-writable local directory for the frontend cache/build
+    user_home = str(pathlib.Path.home())
+    local_frontend_dir = os.path.join(user_home, ".attention-encoders-ui")
+    
+    # Copy source frontend files to the writable home directory
+    if not os.path.exists(local_frontend_dir):
+        print(f"\n📦 Initializing frontend build directory at {local_frontend_dir}...")
+        shutil.copytree(source_frontend_dir, local_frontend_dir, ignore=shutil.ignore_patterns("node_modules", ".next", "__pycache__"))
+        
+    node_modules_dir = os.path.join(local_frontend_dir, "node_modules")
     if not os.path.exists(node_modules_dir):
         print("\n🔧 First-time setup detected: Installing frontend dependencies (this may take a minute)...")
-        subprocess.run(["npm", "install"], cwd=frontend_dir)
+        try:
+            subprocess.run(["npm", "install"], cwd=local_frontend_dir, check=True)
+        except subprocess.CalledProcessError:
+            print("\n❌ Failed to install frontend dependencies. Please ensure npm has write privileges.")
+            os._exit(1)
+            
     print("Starting frontend on port 3000...")
-    subprocess.run(["npm", "run", "dev"], cwd=frontend_dir)
+    subprocess.run(["npm", "run", "dev"], cwd=local_frontend_dir)
 
 def main():
     root = os.path.dirname(os.path.abspath(__file__))
