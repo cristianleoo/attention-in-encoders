@@ -14,6 +14,10 @@ def run_backend(root):
 
 def run_frontend(root):
     frontend_dir = os.path.join(root, "app", "frontend")
+    node_modules_dir = os.path.join(frontend_dir, "node_modules")
+    if not os.path.exists(node_modules_dir):
+        print("\n🔧 First-time setup detected: Installing frontend dependencies (this may take a minute)...")
+        subprocess.run(["npm", "install"], cwd=frontend_dir)
     print("Starting frontend on port 3000...")
     subprocess.run(["npm", "run", "dev"], cwd=frontend_dir)
 
