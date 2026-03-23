@@ -13,6 +13,13 @@ def run_backend(root):
         subprocess.run(["uvicorn", "main:app", "--reload", "--port", "8005"], cwd=backend_dir)
 
 def run_frontend(root):
+    import shutil
+    if not shutil.which("npm"):
+        print("\n❌ CRITICAL ERROR: Node.js (npm) is missing from your system!")
+        print("Required Action: Please install Node.js from https://nodejs.org/ to serve the frontend UI.")
+        print("Exiting...\n")
+        os._exit(1)
+
     frontend_dir = os.path.join(root, "app", "frontend")
     node_modules_dir = os.path.join(frontend_dir, "node_modules")
     if not os.path.exists(node_modules_dir):

@@ -1,6 +1,6 @@
 [project]
 name = "attention-encoders"
-version = "0.1.3"
+version = "0.1.4"
 description = "Attention in Encoders Viewer App"
 requires-python = ">=3.10"
 dependencies = [
