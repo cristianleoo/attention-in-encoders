@@ -19,7 +19,7 @@ This project is the official implementation for the paper:
 The recommended way to install and run the Attention Explorer is directly via `pip`:
 
 ```bash
-pip install attention
+pip install attention-encoders
 ```
 
 Once installed, simply launch the application from your terminal:

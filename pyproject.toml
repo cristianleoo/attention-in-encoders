@@ -1,5 +1,5 @@
 [project]
-name = "attention"
+name = "attention-encoders"
 version = "0.1.0"
 description = "Attention in Encoders Viewer App"
 requires-python = ">=3.10"
@@ -11,3 +11,14 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 attention = "attention_app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+force-include = { "attention_app.py" = "attention_app.py" }
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "**/node_modules",
+  "**/.next",
+  "**/venv",
+]
