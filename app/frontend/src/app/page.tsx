@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 
 // ── Constants ──────────────────────────────────────────────────────
-const API = "http://localhost:8000";
+const API = "http://localhost:8005";
 
 const MODELS = [
   { id: "bert-base-uncased",           label: "BERT-base",       desc: "12L · 12H · 110M · 512 ctx",   maxLen: 512 },
@@ -21,13 +21,14 @@ const SEQ_LENGTHS = [64, 128, 256, 512, 1024, 2048];
 type AttData = { tokens: string[]; attention: number[][][][] };
 type LimitRow = { seq_len: number; latency_ms: number | null; memory_mb: number | null; status: string };
 type LimitsData = { model: string; results: LimitRow[] };
-type Tab = "attention" | "limits" | "flow";
+type Tab = "attention" | "limits" | "flow" | "tokenization" | "leaderboard";
 
 // ── Color helpers ─────────────────────────────────────────────────
-function attnColor(v: number): string {
-  const r = Math.round(20  + 220 * v);
-  const g = Math.round(8   + 30  * (1 - v));
-  const b = Math.round(70  + 130 * v);
+function attnColor(v: number, boost: boolean = false): string {
+  const scaled = boost && v > 1e-9 ? Math.pow(v, 0.35) : Math.max(0, Math.min(1, v));
+  const r = Math.round(20  + 220 * scaled);
+  const g = Math.round(8   + 30  * (1 - scaled));
+  const b = Math.round(70  + 130 * scaled);
   return `rgb(${r},${g},${b})`;
 }
 
@@ -108,7 +109,7 @@ function TokenHealth({ tokens }: { tokens: string[] }) {
 
 // ── Sub-Components ────────────────────────────────────────────────
 
-function HeadThumb({ matrix, active, onClick }: { matrix: number[][]; active: boolean; onClick: () => void }) {
+function HeadThumb({ matrix, active, boost, onClick }: { matrix: number[][]; active: boolean; boost: boolean; onClick: () => void }) {
   const dim = Math.min(matrix.length, 10);
   const step = Math.max(1, Math.floor(matrix.length / dim));
   const rows = Array.from({ length: dim }, (_, i) => matrix[Math.min(i * step, matrix.length - 1)].slice(0, dim));
@@ -125,7 +126,7 @@ function HeadThumb({ matrix, active, onClick }: { matrix: number[][]; active: bo
       {rows.map((row, ri) => (
         <div key={ri} style={{ display: "flex" }}>
           {row.map((v, ci) => (
-            <div key={ci} style={{ width: 10, height: 6, backgroundColor: attnColor(v) }} />
+            <div key={ci} style={{ width: 10, height: 6, backgroundColor: attnColor(v, boost) }} />
           ))}
         </div>
       ))}
@@ -133,13 +134,14 @@ function HeadThumb({ matrix, active, onClick }: { matrix: number[][]; active: bo
   );
 }
 
-function Heatmap({ tokens, matrix }: { tokens: string[]; matrix: number[][] }) {
+function Heatmap({ tokens, matrix, boost }: { tokens: string[]; matrix: number[][]; boost: boolean }) {
   const sz = 26;
+  const leftWidth = 110;
   return (
-    <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "65vh" }}>
+    <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "65vh", paddingRight: sz }}>
       <div style={{ display: "inline-flex", flexDirection: "column", gap: 1 }}>
         {/* column headers */}
-        <div style={{ display: "flex", gap: 1, paddingLeft: sz + 4, marginBottom: 2 }}>
+        <div style={{ display: "flex", gap: 1, paddingLeft: leftWidth + 4, marginBottom: 2 }}>
           {tokens.map((t, i) => (
             <div key={i} style={{
               width: sz, fontSize: 8, color: "var(--muted)",
@@ -151,11 +153,11 @@ function Heatmap({ tokens, matrix }: { tokens: string[]; matrix: number[][] }) {
         </div>
         {matrix.map((row, ri) => (
           <div key={ri} style={{ display: "flex", gap: 1, alignItems: "center" }}>
-            <div style={{ width: sz, textAlign: "right", paddingRight: 4, fontSize: 8, color: "var(--muted)", fontFamily: "var(--font-mono)", overflow: "hidden" }}>
+            <div style={{ width: leftWidth, textAlign: "right", paddingRight: 4, fontSize: 9, color: "var(--muted)", fontFamily: "var(--font-mono)", overflow: "hidden", flexShrink: 0, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {tokens[ri]}
             </div>
             {row.map((v, ci) => (
-              <div key={ci} className="hm-cell" style={{ width: sz, height: sz, backgroundColor: attnColor(v) }}>
+              <div key={ci} className="hm-cell" style={{ width: sz, height: sz, backgroundColor: attnColor(v, boost), flexShrink: 0 }}>
                 <span className="tip">{v.toFixed(3)}</span>
               </div>
             ))}
@@ -268,29 +270,26 @@ function LimitsChart({ data }: { data: LimitRow[] }) {
 }
 
 // ── Main Page ─────────────────────────────────────────────────────
-type Tab = "attention" | "limits" | "flow" | "compare" | "tokenization";
 
 export default function Home() {
   const [text, setText] = useState(
     "The self-attention mechanism allows every token to attend to every other token, creating rich bidirectional contextual representations."
   );
   const [modelId, setModelId] = useState(MODELS[0].id);
-  const [modelId2, setModelId2] = useState(MODELS[2].id); // default to DeBERTa for comparison
   const [tab, setTab] = useState<Tab>("attention");
 
   // Attention tab state
   const [attnLoading, setAttnLoading] = useState(false);
   const [attnError, setAttnError] = useState<string | null>(null);
   const [attnData, setAttnData] = useState<AttData | null>(null);
-  const [attnData2, setAttnData2] = useState<AttData | null>(null);
   const [selLayer, setSelLayer] = useState(0);
   const [selHead, setSelHead] = useState(-1);
   const [selToken, setSelToken] = useState(0);
+  const [boostSignals, setBoostSignals] = useState(false);
 
   const [limitsLoading, setLimitsLoading] = useState(false);
   const [limitsError, setLimitsError] = useState<string | null>(null);
   const [limitsData, setLimitsData] = useState<LimitsData | null>(null);
-  const [limitsData2, setLimitsData2] = useState<LimitsData | null>(null);
 
   const selectedModel = MODELS.find(m => m.id === modelId) ?? MODELS[0];
 
@@ -313,7 +312,6 @@ export default function Home() {
     setAttnError(null);
     setLimitsError(null);
     try {
-      // Fetch primary model
       const res1 = await fetch(`${API}/api/attention`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -323,26 +321,8 @@ export default function Home() {
       const d1: AttData = await res1.json();
       setAttnData(d1);
 
-      // Auto-fetch limits for primary
       const lim1 = await fetchLimits(modelId);
       if (lim1) setLimitsData(lim1);
-
-      // Optionally fetch second model if in compare mode
-      if (tab === "compare") {
-        const res2 = await fetch(`${API}/api/attention`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, model_name: modelId2 }),
-        });
-        if (res2.ok) {
-          setAttnData2(await res2.json());
-        }
-        const lim2 = await fetchLimits(modelId2);
-        if (lim2) setLimitsData2(lim2);
-      } else {
-        setAttnData2(null);
-        setLimitsData2(null);
-      }
 
       setSelLayer(0); setSelHead(0); setSelToken(0);
     } catch (e) {
@@ -350,7 +330,7 @@ export default function Home() {
     } finally {
       setAttnLoading(false);
     }
-  }, [text, modelId, modelId2, tab]);
+  }, [text, modelId, tab]);
 
   // ── Stats for current head ──
   const stats = useMemo(() => {
@@ -432,21 +412,12 @@ export default function Home() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", letterSpacing: "0.08em" }}>{tab === "compare" ? "MODEL A" : "MODEL"}</label>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", letterSpacing: "0.08em" }}>MODEL</label>
                 <select value={modelId} onChange={e => setModelId(e.target.value)} style={{ padding: "10px 12px", fontSize: 13 }}>
                   {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
                 </select>
                 <div style={{ fontSize: 10, color: "var(--muted)", fontFamily: "var(--font-mono, monospace)" }}>{selectedModel.desc}</div>
               </div>
-              {tab === "compare" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", letterSpacing: "0.08em" }}>MODEL B</label>
-                  <select value={modelId2} onChange={e => setModelId2(e.target.value)} style={{ padding: "10px 12px", fontSize: 13 }}>
-                    {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                  </select>
-                  <div style={{ fontSize: 10, color: "var(--muted)", fontFamily: "var(--font-mono, monospace)" }}>{MODELS.find(m => m.id === modelId2)?.desc}</div>
-                </div>
-              )}
               <div style={{ display: "flex", gap: 8 }}>
                 <button className="glow-btn" onClick={analyzeAttention} disabled={attnLoading || !text.trim()}
                   style={{ flex: 1, padding: "11px 0", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
@@ -463,13 +434,29 @@ export default function Home() {
           )}
         </section>
 
+        {/* ── Corpus Verdict (Decision Engine) ── */}
+        {attnData && (
+          <section className="glass fade-up" style={{ padding: "18px 24px", display: "flex", alignItems: "center", gap: 18, background: "rgba(139, 92, 246, 0.06)", border: "1px solid rgba(139, 92, 246, 0.25)" }}>
+            <div style={{ fontSize: 32 }}>{getFragmentation(attnData.tokens).fragRatio > 1.35 ? "⚠️" : "🚀"}</div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#c4b5fd", letterSpacing: "0.08em", marginBottom: 4 }}>CORPUS COMPATIBILITY VERDICT</div>
+              <p style={{ fontSize: 13, color: "var(--muted)", margin: 0, lineHeight: 1.5 }}>
+                {getFragmentation(attnData.tokens).fragRatio > 1.35 
+                  ? <span>Your text contains complex or domain-specific language that highly fragments <strong>{selectedModel.label}</strong>'s vocabulary ({getFragmentation(attnData.tokens).fragRatio.toFixed(2)} tokens/word). You will lose early-layer semantic reasoning capacity. Consider swapping to <strong>ModernBERT</strong> or <strong>BGE-M3</strong>.</span>
+                  : <span><strong>{selectedModel.label}</strong> natively understands your text's vocabulary perfectly ({getFragmentation(attnData.tokens).fragRatio.toFixed(2)} tokens/word). Deep semantic routing will be highly efficient. This is an excellent architectural choice for this corpus.</span>}
+              </p>
+            </div>
+          </section>
+        )}
+
         {/* ── Tabs ── */}
         {(attnData || limitsData) && (
           <div style={{ display: "flex", gap: 10 }}>
             {attnData && <TabBtn id="attention" label="Attention Matrix" icon="🧠" />}
             {attnData && <TabBtn id="tokenization" label="Vocabulary Fit" icon="🔬" />}
             {attnData && <TabBtn id="flow" label="Token Flow" icon="🌊" />}
-            {attnData && <TabBtn id="compare" label="Compare Models" icon="⚖️" />}
+            {limitsData && <TabBtn id="limits" label="Practical Limits" icon="⚡" />}
+            <TabBtn id="leaderboard" label="Leaderboards" icon="🏆" />
             {limitsData && <TabBtn id="limits" label="Practical Limits" icon="⚡" />}
           </div>
         )}
@@ -479,37 +466,48 @@ export default function Home() {
           <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
             <section className="glass" style={{ padding: 22 }}>
               <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Fragmentation Map: {selectedModel.label}</h2>
+              {attnData.tokens.some(t => t.includes("Ġ")) && (
+                <div style={{ marginBottom: 14, padding: "10px 14px", background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 8, fontSize: 12, color: "#93c5fd", lineHeight: 1.5 }}>
+                  <strong style={{ color: "#bfdbfe" }}>Tokenizer Note:</strong> The <code>Ġ</code> character is this architecture's internal BPE marker for a preceding space. It mathematically bakes spacing directly into the vocabulary to prevent boundary bugs.
+                </div>
+              )}
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 4px", background: "rgba(0,0,0,0.15)", padding: 16, borderRadius: 12, lineHeight: 2 }}>
-                {attnData.tokens.map((t, i) => {
-                  const isSub = t.startsWith("##") || (!t.startsWith("Ġ") && !t.startsWith(" ") && i > 0 && !["[CLS]","[SEP]","<s>","</s>","<pad>","[MASK]"].includes(t));
-                  const isSpecial = ["[CLS]","[SEP]","<s>","</s>","<pad>","[MASK]"].includes(t);
-                  return (
-                    <span key={i} style={{
-                      padding: "2px 6px",
-                      borderRadius: 4,
-                      fontSize: 13,
-                      fontFamily: "var(--font-mono, monospace)",
-                      background: isSpecial ? "rgba(255,255,255,0.05)" : isSub ? "rgba(248,113,113,0.15)" : "rgba(52,211,153,0.1)",
-                      color: isSpecial ? "var(--muted)" : isSub ? "#fca5a5" : "#6ee7b7",
-                      border: "1px solid",
-                      borderColor: isSpecial ? "transparent" : isSub ? "rgba(248,113,113,0.3)" : "rgba(52,211,153,0.2)",
-                    }}>
-                      {t}
-                    </span>
-                  );
-                })}
-              </div>
-              <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <div className="glass" style={{ padding: 16, background: "rgba(255,255,255,0.02)" }}>
-                  <div style={{ fontSize: 10, color: "var(--muted)", marginBottom: 4 }}>TOTAL TOKENS</div>
-                  <div style={{ fontSize: 20, fontWeight: 800 }}>{attnData.tokens.length}</div>
-                </div>
-                <div className="glass" style={{ padding: 16, background: "rgba(255,255,255,0.02)" }}>
-                  <div style={{ fontSize: 10, color: "var(--muted)", marginBottom: 4 }}>VOCAB OVERHEAD</div>
-                  <div style={{ fontSize: 20, fontWeight: 800 }}>
-                    {((attnData.tokens.length / getFragmentation(attnData.tokens).wordCount - 1) * 100).toFixed(0)}%
-                  </div>
-                </div>
+                {(() => {
+                  const isFragToken = new Array(attnData.tokens.length).fill(false);
+                  let currentWordStart = -1;
+                  for (let i = 0; i < attnData.tokens.length; i++) {
+                    const t = attnData.tokens[i];
+                    const isSpecial = ["[CLS]","[SEP]","<s>","</s>","<pad>","[MASK]"].includes(t);
+                    if (isSpecial) continue;
+                    
+                    const isSub = t.startsWith("##") || (!t.startsWith("Ġ") && !t.startsWith(" ") && i > 0 && !["[CLS]","[SEP]","<s>","</s>","<pad>","[MASK]"].includes(attnData.tokens[i]));
+                    if (!isSub) {
+                      currentWordStart = i;
+                    } else {
+                      isFragToken[i] = true;
+                      if (currentWordStart !== -1) isFragToken[currentWordStart] = true;
+                    }
+                  }
+
+                  return attnData.tokens.map((t, i) => {
+                    const isSpecial = ["[CLS]","[SEP]","<s>","</s>","<pad>","[MASK]"].includes(t);
+                    const isBroken = isFragToken[i];
+                    return (
+                      <span key={i} style={{
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        fontSize: 13,
+                        fontFamily: "var(--font-mono, monospace)",
+                        background: isSpecial ? "rgba(255,255,255,0.05)" : isBroken ? "rgba(248,113,113,0.15)" : "rgba(52,211,153,0.1)",
+                        color: isSpecial ? "var(--muted)" : isBroken ? "#fca5a5" : "#6ee7b7",
+                        border: "1px solid",
+                        borderColor: isSpecial ? "transparent" : isBroken ? "rgba(248,113,113,0.3)" : "rgba(52,211,153,0.2)",
+                      }}>
+                        {t}
+                      </span>
+                    );
+                  });
+                })()}
               </div>
             </section>
 
@@ -524,76 +522,81 @@ export default function Home() {
           </div>
         )}
 
-        {/* ══ COMPARE TAB ══ */}
-        {tab === "compare" && (
-          <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-            {(!attnData || !attnData2) ? (
-              <section className="glass" style={{ padding: 40, textAlign: "center" }}>
-                <p style={{ color: "var(--muted)" }}>
-                  Select two models and click <strong>Analyze</strong> to compare their attention patterns.
+        {/* ══ LEADERBOARDS TAB ══ */}
+        {tab === "leaderboard" && (
+          <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            <section className="glass" style={{ padding: 32 }}>
+              <div style={{ marginBottom: 24 }}>
+                <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
+                  NLP Performance Leaderboards
+                </h2>
+                <p style={{ fontSize: 12, color: "var(--muted)" }}>
+                  Comparing the objective reasoning capabilities (GLUE) and semantic retrieval capabilities (MTEB) of historical and modern encoder architectures.
                 </p>
-              </section>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-                <section className="glass" style={{ padding: 22 }}>
-                  <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>{MODELS.find(m => m.id === modelId)?.label}</h2>
-                  <Heatmap 
-                    tokens={attnData.tokens} 
-                    matrix={attnData.attention[selLayer] ? attnData.attention[selLayer][selHead] : attnData.attention[0][0]} 
-                  />
-                </section>
-                <section className="glass" style={{ padding: 22 }}>
-                  <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>{MODELS.find(m => m.id === modelId2)?.label}</h2>
-                  <Heatmap 
-                    tokens={attnData2.tokens} 
-                    matrix={attnData2.attention[selLayer] ? (attnData2.attention[selLayer][selHead] ?? attnData2.attention[selLayer][0]) : attnData2.attention[0][0]} 
-                  />
-                </section>
-
-                {/* Tokenization side-by-side comparison */}
-                <div style={{ gridColumn: "span 2", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-                  <section className="glass" style={{ padding: 18 }}>
-                    <TokenHealth tokens={attnData.tokens} />
-                  </section>
-                  <section className="glass" style={{ padding: 18 }}>
-                    <TokenHealth tokens={attnData2.tokens} />
-                  </section>
-                </div>
-
-                <div style={{ gridColumn: "span 2" }}>
-                  <section className="glass" style={{ padding: 18, display: "flex", gap: 40, justifyContent: "center" }}>
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--muted)", letterSpacing: "0.08em", marginBottom: 8 }}>LAYER</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        {attnData.attention.map((_, i) => (
-                          <button key={i} onClick={() => setSelLayer(i)} style={{
-                            width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600,
-                            background: selLayer === i ? "linear-gradient(135deg,#2563eb,#7c3aed)" : "rgba(255,255,255,0.06)",
-                            color: selLayer === i ? "#fff" : "var(--muted)", transition: "all 0.12s",
-                          }}>{i + 1}</button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--muted)", letterSpacing: "0.08em", marginBottom: 8 }}>HEAD</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        {attnData.attention[selLayer].map((_, hi) => (
-                          <button key={hi} onClick={() => setSelHead(hi)} style={{
-                            width: 28, height: 28, borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600,
-                            background: selHead === hi ? "linear-gradient(135deg,#2563eb,#7c3aed)" : "rgba(255,255,255,0.06)",
-                            color: selHead === hi ? "#fff" : "var(--muted)", transition: "all 0.12s",
-                          }}>{hi + 1}</button>
-                        ))}
-                      </div>
-                    </div>
-                  </section>
-                </div>
               </div>
-            )}
+
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border)", background: "rgba(255,255,255,0.02)" }}>
+                      <th style={{ textAlign: "left", padding: "12px", color: "var(--muted)", fontWeight: 600 }}>Architecture</th>
+                      <th style={{ textAlign: "left", padding: "12px", color: "var(--muted)", fontWeight: 600 }}>Params</th>
+                      <th style={{ textAlign: "left", padding: "12px", color: "var(--muted)", fontWeight: 600 }}>Era</th>
+                      <th style={{ textAlign: "left", padding: "12px", color: "var(--muted)", fontWeight: 600 }}>GLUE (Avg)</th>
+                      <th style={{ textAlign: "left", padding: "12px", color: "var(--muted)", fontWeight: 600 }}>MTEB (Retrieval)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                      <td style={{ padding: "12px", fontWeight: 700, color: "#cbd5e1" }}>DeBERTa v3 Base</td>
+                      <td style={{ padding: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>184M</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>2021</td>
+                      <td style={{ padding: "12px", fontWeight: 700, color: "#34d399" }}>91.4</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>—</td>
+                    </tr>
+                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", background: "rgba(139,92,246,0.04)" }}>
+                      <td style={{ padding: "12px", fontWeight: 700, color: "#a78bfa" }}>ModernBERT Base</td>
+                      <td style={{ padding: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>149M</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>2024</td>
+                      <td style={{ padding: "12px", fontWeight: 700 }}>87.2</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>—</td>
+                    </tr>
+                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                      <td style={{ padding: "12px", fontWeight: 700, color: "#cbd5e1" }}>RoBERTa Base</td>
+                      <td style={{ padding: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>125M</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>2019</td>
+                      <td style={{ padding: "12px" }}>86.8</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>—</td>
+                    </tr>
+                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", background: "rgba(59,130,246,0.04)" }}>
+                      <td style={{ padding: "12px", fontWeight: 700, color: "#93c5fd" }}>GTE-ModernBERT Base</td>
+                      <td style={{ padding: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>149M</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>2025</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>—</td>
+                      <td style={{ padding: "12px", fontWeight: 700, color: "#34d399" }}>60.5</td>
+                    </tr>
+                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                      <td style={{ padding: "12px", fontWeight: 700, color: "#cbd5e1" }}>BGE-M3</td>
+                      <td style={{ padding: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>568M</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>2024</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>—</td>
+                      <td style={{ padding: "12px", fontWeight: 700 }}>58.2</td>
+                    </tr>
+                    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                      <td style={{ padding: "12px", fontWeight: 700, color: "var(--muted)" }}>BERT Base</td>
+                      <td style={{ padding: "12px", color: "var(--muted)", fontFamily: "var(--font-mono)" }}>110M</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>2018</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>79.6</td>
+                      <td style={{ padding: "12px", color: "var(--muted)" }}>47.8</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
           </div>
         )}
         {tab === "attention" && attnData && (
-          <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20, alignItems: "start" }}>
+          <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 20, alignItems: "start" }}>
 
             {/* Left: controls */}
             <section className="glass" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 24 }}>
@@ -646,7 +649,7 @@ export default function Home() {
                   </button>
                   {attnData.attention[selLayer].map((hm, hi) => (
                     <div key={hi} style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
-                      <HeadThumb matrix={hm} active={selHead === hi} onClick={() => setSelHead(hi)} />
+                      <HeadThumb matrix={hm} active={selHead === hi} boost={boostSignals} onClick={() => setSelHead(hi)} />
                       <span style={{ fontSize: 9, color: selHead === hi ? "#a78bfa" : "var(--muted)" }}>H{hi + 1}</span>
                     </div>
                   ))}
@@ -685,11 +688,17 @@ export default function Home() {
                     )}
                   </div>
                 </div>
-                <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--font-mono)", textAlign: "right" }}>
-                  {attnData.tokens.length} tokens
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                  <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--font-mono)", textAlign: "right" }}>
+                    {attnData.tokens.length} tokens
+                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, cursor: "pointer", color: boostSignals ? "#c4b5fd" : "var(--muted)" }}>
+                    <input type="checkbox" checked={boostSignals} onChange={e => setBoostSignals(e.target.checked)} />
+                    Boost Faint Signals
+                  </label>
                 </div>
               </div>
-              <Heatmap tokens={attnData.tokens} matrix={currentMatrix} />
+              <Heatmap tokens={attnData.tokens} matrix={currentMatrix} boost={boostSignals} />
 
               <div style={{ marginTop: 32, borderTop: "1px solid var(--border)", paddingTop: 24 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-purple)", marginBottom: 12 }}>HOW TO INTERPRET PATTERNS</div>
@@ -726,7 +735,7 @@ export default function Home() {
 
         {/* ══ TOKEN FLOW TAB ══ */}
         {tab === "flow" && attnData && (
-          <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20, alignItems: "start" }}>
+          <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 20, alignItems: "start" }}>
 
             <section className="glass" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 18 }}>
               {/* Layer/head controls reused */}

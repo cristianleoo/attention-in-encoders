@@ -7,7 +7,7 @@ An interactive visualization tool for exploring bidirectional self-attention mec
 ## 📄 Research Paper
 
 This project is the official implementation for the paper:  
-**"Comprehensive Survey of Attention Mechanisms in Encoder-Only Language Models"**  
+**"Survey of Attention Mechanisms in Encoder-Only Language Models"**  
 [Read the paper on arXiv](https://arxiv.org/abs/XXXX.XXXXX)
 
 ---

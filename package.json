@@ -2,7 +2,7 @@
   "name": "attention-in-encoders-root",
   "private": true,
   "scripts": {
-    "dev": "npm run dev --prefix app/frontend & (cd app/backend && . venv/bin/activate && uvicorn main:app --reload --port 8000)",
+    "dev": "npm run dev --prefix app/frontend & (cd app/backend && . venv/bin/activate && uvicorn main:app --reload --port 8005)",
     "install:all": "npm install --prefix app/frontend && (cd app/backend && pip install -r requirements.txt)",
     "test": "cd app/backend && . venv/bin/activate && pytest ../../tests/backend"
   }

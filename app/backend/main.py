@@ -33,7 +33,11 @@ def get_model(name: str):
     if name not in _cache:
         try:
             tok = AutoTokenizer.from_pretrained(name)
-            mdl = AutoModel.from_pretrained(name, output_attentions=True)
+            mdl = AutoModel.from_pretrained(
+                name,
+                output_attentions=True,
+                attn_implementation="eager"
+            )
             mdl.eval()
             _cache[name] = (tok, mdl)
         except Exception as exc:

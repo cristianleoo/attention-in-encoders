@@ -1,0 +1,13 @@
+[project]
+name = "attention-app"
+version = "0.1.0"
+description = "Attention in Encoders Viewer App"
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+attention = "attention_app:main"

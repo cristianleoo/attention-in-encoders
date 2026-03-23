@@ -25,11 +25,18 @@
 
 % ── Document ──────────────────────────────────────────────────────────────────
 \title{%
-  \textbf{Comprehensive Survey of Attention Mechanisms in\\
-  Encoder-Only Language Models}\\[0.5em]
-  {\large Architectures, Efficiencies, and Interpretability}
+  \textbf{Survey of Attention Mechanisms in\\
+  Encoder-Only Language Models}
 }
-\author{Cristian Leo \and Daniel Begimher}
+\author{
+  Cristian Leo \\
+  \textit{Independent} \\
+  \texttt{cristianleo120@gmail.com}
+  \and
+  Daniel Begimher \\
+  \textit{Independent} \\
+  \texttt{bagaimher@gmail.com}
+}
 \date{March 2026}
 
 \begin{document}
@@ -70,15 +77,33 @@ This survey makes the following contributions:
 
 \subsection{Scaled Dot-Product Attention}
 
+The core of the Transformer architecture is the attention mechanism, which allows for dynamic, content-based routing of information. In the context of bidirectional encoders, this mechanism is applied globally, enabling each token to integrate context from the entire sequence simultaneously. This operation fundamentally shifts the paradigm from recursive state updates (as in RNNs) to a direct, pairwise interaction model where path lengths between any two temporal positions are reduced to $\mathcal{O}(1)$.
+
 \begin{definition}[Scaled Dot-Product Attention]
-Given an input sequence $X \in \mathbb{R}^{T \times d_{\text{model}}}$, the queries, keys, and values are defined as $Q = XW_Q$, $K = XW_K$, $V = XW_V$ where $W_Q, W_K \in \mathbb{R}^{d_{\text{model}} \times d_k}$ and $W_V \in \mathbb{R}^{d_{\text{model}} \times d_v}$. The scaled dot-product attention is:
+Given an input sequence $X \in \mathbb{R}^{T \times d_{\text{model}}}$, we first compute the linear projections:
+\begin{equation}
+  Q = XW_Q, \quad K = XW_K, \quad V = XW_V
+\end{equation}
+where $W_Q, W_K \in \mathbb{R}^{d_{\text{model}} \times d_k}$ and $W_V \in \mathbb{R}^{d_{\text{model}} \times d_v}$ are learnable weight matrices. The scaled dot-product attention is defined as:
 \begin{equation}
   \text{Attention}(Q, K, V) = \text{softmax} \!\left( \frac{QK^\top}{\sqrt{d_k}} \right) V
-  \label{eq:attention}
+  \label{eq:attention_formal}
 \end{equation}
 \end{definition}
 
-\begin{figure}[h]
+\subsubsection{Intuition: Information Retrieval Analogy}
+The mechanism can be conceptualized through the lens of information retrieval—a differentiable key-value store. A \textbf{query} $q_i$ (representing the $i$-th token's current state and searching intentions) is compared against a set of \textbf{keys} $\{k_1, \ldots, k_T\}$ (representing all tokens in the sequence and their available content) to determine their relevance. The dot product $q_i \cdot k_j$ serves as a similarity metric, measuring the alignment between the query's need and the key's offering. The resulting attention weights, normalized by the softmax function, determine how much of the information in the corresponding \textbf{values} $\{v_1, \ldots, v_T\}$ (the actual semantic payloads) is aggregated into the new representation of the $i$-th token. Consequently, each token transforms from a static embedding into a contextualized representation that encapsulates its role within the specific sequence.
+
+The scaling factor $1/\sqrt{d_k}$ is critical for training stability. Without it, as the dimensionality $d_k$ increases, the magnitude of the dot products $QK^\top$ grows. Specifically, for independent random variables with zero mean and unit variance, their dot product has variance $d_k$. Large variances push the softmax function into regions where gradients approach zero, thus profoundly hindering backpropagation. The scaling restores the variance of the pre-softmax activations to $1$.
+
+\subsubsection{Numerical Illustration}
+To illustrate, consider a sequence of length $T=3$ with $d_k=4$. Let the query vector for the first token be $q_1 = [1, 0, 1, 0]$ and the key vectors for all tokens be:
+\begin{equation*}
+    K = \begin{bmatrix} 1 & 0 & 1 & 0 \\ 0 & 1 & 0 & 1 \\ 1 & 1 & 0 & 0 \end{bmatrix}
+\end{equation*}
+The raw dot products $q_1 K^\top$ would be $[2, 0, 1]$. Applying the scaling factor $\sqrt{d_k}=2$ yields $[1, 0, 0.5]$. After the softmax operation, we obtain weights $\approx [0.47, 0.17, 0.36]$. These weights dictate the linear combination of the value vectors $V$ that will form the output for the first token, showing how it ``attends'' primarily to itself and the third token. This explicit gating mechanism guarantees that extreme values are bounded and the output is a convex combination of the input values, maintaining the representation within a stable mathematical manifold.
+
+\begin{figure}[ht]
 \centering
 \begin{tikzpicture}[
   box/.style={draw, rounded corners=4pt, minimum width=1.8cm, minimum height=0.65cm,
@@ -142,71 +167,113 @@ Given an input sequence $X \in \mathbb{R}^{T \times d_{\text{model}}}$, the quer
 \label{fig:attention_flow}
 \end{figure}
 
-The dot product $QK^\top \in \mathbb{R}^{T \times T}$ computes unnormalized similarity scores between all query-key pairs across the entire sequence. The scaling factor $1/\sqrt{d_k}$ prevents excessively large dot products that would push the softmax into regions of vanishing gradients~\cite{vaswani2017attention}. Unlike causal self-attention in decoder-only architectures, bidirectional encoder attention applies \emph{no} temporal mask, allowing every output token representation to be a weighted combination of \emph{all} input values.
-
 \subsection{Multi-Head Attention}
 
-To capture diverse relationships (e.g., short-term syntactic dependencies and long-term semantic coreferences) concurrently, the mechanism is extended to multi-head attention~\cite{vaswani2017attention}:
+The single-head attention mechanism is limited to a single mode of interaction, often causing a mixing of distinct semantic and syntactic signals. To capture diverse relationships concurrently, the mechanism is extended to multi-head attention (MHA). Instead of performing a single attention function in a $d_{\text{model}}$-dimensional space, the keys, values, and queries are linearly projected $h$ times with different, learned linear projections to $d_k$, $d_k$, and $d_v$ dimensions, respectively.
+
 \begin{equation}
   \text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h) W^O
 \end{equation}
-where $\text{head}_i = \text{Attention}(Q W_i^Q, K W_i^K, V W_i^V)$ and each head projects into a lower-dimensional subspace $d_k = d_v = d_{\text{model}} / h$. This multi-head design provides redundant representational capacity and allows heads to specialize in distinct linguistic phenomena.
+where $\text{head}_i = \text{Attention}(Q W_i^Q, K W_i^K, V W_i^V)$ and $W^O \in \mathbb{R}^{h d_v \times d_{\text{model}}}$. By projecting $Q, K$, and $V$ into $h$ different subspaces, the model can simultaneously attend to different aspects of the input. For instance, one head might track subject-verb agreement while another resolves pronoun references, massively increasing the representational capacity without substantially expanding the parameter count.
 
-\subsection{Computational Complexity}
+\subsubsection{Functional Specialization of Heads}
+Empirical studies of models like BERT have shown that different heads often specialize in distinct linguistic phenomena over the course of unsupervised pre-training. For example, some heads may focus on local syntactic structures (e.g., attending to the next token, the previous token, or the head of a dependency tree), while others capture global semantic relationships or act as ``attention sinks,'' attending primarily to separator tokens or punctuation. This redundancy and specialization are key to the robustness of Transformer representations. Pruning studies have even revealed that a large fraction of attention heads can be removed at inference time with minimal performance degradation, suggesting that while many heads are necessary for optimization, only a subset are critical for inference.
 
-\begin{proposition}[Quadratic Complexity]
-Standard multi-head self-attention on a sequence of length $T$ with model dimension $d$ requires $\mathcal{O}(T^2 \cdot d)$ time and $\mathcal{O}(T^2 \cdot h)$ memory to materialize the full attention matrix.
+\subsection{Computational Complexity and Constraints}
+
+\begin{proposition}[Quadratic Scaling]
+Standard self-attention exhibits $\mathcal{O}(T^2 \cdot d)$ time complexity and $\mathcal{O}(T^2 \cdot h)$ space complexity.
 \end{proposition}
 
+The quadratic dependence on the sequence length $T$ arises from the materialization of the $T \times T$ attention matrix for each head. For a typical BERT model with $L=12$ layers and $h=12$ heads, the total number of attention entries for a sequence of length $T=512$ is $12 \times 12 \times 512^2 \approx 3.7 \times 10^7$ per forward pass. When processing longer sequences, the attention computation quickly dominates the feed-forward network (FFN) computation, transitioning the model from compute-bound to memory-bandwidth bound. Furthermore, during training, these matrices must be stored for backpropagation, making memory an even tighter bottleneck than compute.
+
 % Fig 2 — Synthetic attention heatmap (explicit fills, no PGF array indexing)
-\begin{figure}[h]
+\begin{figure}[ht]
 \centering
 \begin{tikzpicture}
-  \def\cs{0.75}
+  \def\cs{0.65}
+  
   % Row 0: [CLS]
-  \fill[blue!40!white](0*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-0*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!15!white](1*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-0*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!15!white](2*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-0*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!15!white](3*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-0*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!15!white](4*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-0*\cs)rectangle++(\cs,-\cs);
-  % Row 1: the
-  \fill[blue!55!white](0*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-1*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!45!white](0*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](1*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](2*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](3*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](4*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](5*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](5*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](6*\cs,-0*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](6*\cs,-0*\cs)rectangle++(\cs,-\cs);
+  
+  % Row 1: attention
+  \fill[blue!60!white](0*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-1*\cs)rectangle++(\cs,-\cs);
   \fill[blue!20!white](1*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-1*\cs)rectangle++(\cs,-\cs);
   \fill[blue!10!white](2*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-1*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!10!white](3*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-1*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!5!white] (3*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-1*\cs)rectangle++(\cs,-\cs);
   \fill[blue!5!white] (4*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-1*\cs)rectangle++(\cs,-\cs);
-  % Row 2: fox
-  \fill[blue!30!white](0*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-2*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!8!white] (1*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-2*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!35!white](2*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-2*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](5*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](5*\cs,-1*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!5!white] (6*\cs,-1*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](6*\cs,-1*\cs)rectangle++(\cs,-\cs);
+  
+  % Row 2: is
+  \fill[blue!50!white](0*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-2*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!25!white](1*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-2*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](2*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-2*\cs)rectangle++(\cs,-\cs);
   \fill[blue!20!white](3*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-2*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!7!white] (4*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-2*\cs)rectangle++(\cs,-\cs);
-  % Row 3: jumps
-  \fill[blue!25!white](0*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-3*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!7!white] (1*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-3*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!28!white](2*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-3*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!32!white](3*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-3*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!8!white] (4*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-3*\cs)rectangle++(\cs,-\cs);
-  % Row 4: [SEP]
-  \fill[blue!50!white](0*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-4*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!10!white](1*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-4*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!12!white](2*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-4*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!12!white](3*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-4*\cs)rectangle++(\cs,-\cs);
-  \fill[blue!16!white](4*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!5!white] (4*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-2*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!5!white] (5*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](5*\cs,-2*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](6*\cs,-2*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](6*\cs,-2*\cs)rectangle++(\cs,-\cs);
+  
+  % Row 3: all
+  \fill[blue!55!white](0*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](1*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!25!white](2*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](3*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!30!white](4*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!5!white] (5*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](5*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](6*\cs,-3*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](6*\cs,-3*\cs)rectangle++(\cs,-\cs);
+  
+  % Row 4: you
+  \fill[blue!52!white](0*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!5!white] (1*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!5!white] (2*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!25!white](3*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](4*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!35!white](5*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](5*\cs,-4*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](6*\cs,-4*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](6*\cs,-4*\cs)rectangle++(\cs,-\cs);
+
+  % Row 5: need
+  \fill[blue!45!white](0*\cs,-5*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-5*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!30!white](1*\cs,-5*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-5*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!5!white] (2*\cs,-5*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-5*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!5!white] (3*\cs,-5*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-5*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!25!white](4*\cs,-5*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-5*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!20!white](5*\cs,-5*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](5*\cs,-5*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](6*\cs,-5*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](6*\cs,-5*\cs)rectangle++(\cs,-\cs);
+
+  % Row 6: [SEP]
+  \fill[blue!40!white](0*\cs,-6*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](0*\cs,-6*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](1*\cs,-6*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](1*\cs,-6*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](2*\cs,-6*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](2*\cs,-6*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!10!white](3*\cs,-6*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](3*\cs,-6*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](4*\cs,-6*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](4*\cs,-6*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!15!white](5*\cs,-6*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](5*\cs,-6*\cs)rectangle++(\cs,-\cs);
+  \fill[blue!20!white](6*\cs,-6*\cs)rectangle++(\cs,-\cs);\draw[gray!30,thin](6*\cs,-6*\cs)rectangle++(\cs,-\cs);
+
   % Column labels (Keys)
-  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(0*\cs+0.2,0.1){[CLS]};
-  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(1*\cs+0.2,0.1){the};
-  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(2*\cs+0.2,0.1){fox};
-  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(3*\cs+0.2,0.1){jumps};
-  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(4*\cs+0.2,0.1){[SEP]};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(0*\cs+0.1,0.1){[CLS]};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(1*\cs+0.1,0.1){attention};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(2*\cs+0.1,0.1){is};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(3*\cs+0.1,0.1){all};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(4*\cs+0.1,0.1){you};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(5*\cs+0.1,0.1){need};
+  \node[font=\footnotesize\ttfamily,rotate=45,anchor=south west]at(6*\cs+0.1,0.1){[SEP]};
   % Row labels (Queries)
   \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-0*\cs-0.5*\cs){[CLS]};
-  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-1*\cs-0.5*\cs){the};
-  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-2*\cs-0.5*\cs){fox};
-  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-3*\cs-0.5*\cs){jumps};
-  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-4*\cs-0.5*\cs){[SEP]};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-1*\cs-0.5*\cs){attention};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-2*\cs-0.5*\cs){is};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-3*\cs-0.5*\cs){all};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-4*\cs-0.5*\cs){you};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-5*\cs-0.5*\cs){need};
+  \node[font=\footnotesize\ttfamily,anchor=east]at(-0.1,-6*\cs-0.5*\cs){[SEP]};
   % Colour bar (positioned below)
-  \begin{scope}[shift={(0.5*\cs, -5.2*\cs)}]
+  \begin{scope}[shift={(1.0*\cs, -7.5*\cs)}]
     \foreach \x in {0,5,...,100} {
       \fill[blue!\x!white] (\x/60, 0) rectangle ++(5/60, 0.25);
     }
@@ -216,11 +283,11 @@ Standard multi-head self-attention on a sequence of length $T$ with model dimens
     \node[font=\scriptsize, anchor=west] at (2.0, 0.12) {Attention weight};
   \end{scope}
 \end{tikzpicture}
-\caption{Illustrative bidirectional self-attention heatmap (Layer~1, Head~1) for the sentence ``the fox jumps''. Colour intensity encodes the softmax attention weight from each row token (query) to each column token (key). The \texttt{[CLS]} token absorbs disproportionate probability mass, illustrating the attention sink effect.}
+\caption{Illustrative bidirectional self-attention heatmap (Layer~1, Head~1) for the sentence ``attention is all you need''. Colour intensity encodes the softmax attention weight from each row token (query) to each column token (key). The \texttt{[CLS]} token absorbs disproportionate probability mass, illustrating the attention sink effect.}
 \label{fig:heatmap}
 \end{figure}
 
-As $T$ grows, this quadratic footprint becomes an insurmountable barrier. BERT and RoBERTa are tightly constrained to $T = 512$ because the resulting $512 \times 512 \times 12$ attention tensors per layer already consume several gigabytes of GPU memory during training.
+This quadratic bottleneck is particularly acute in memory consumption. During training, the attention matrices must be stored for the backward pass, leading to $\mathcal{O}(L \cdot h \cdot T^2)$ memory requirements. This limitation motivates the architectural innovations discussed in Section~\ref{sec:taming}, which aim to sparsify or linearize the attention mechanism.
 
 % ══════════════════════════════════════════════════════════════════════════════
 \section{Architectural Evolution of Foundational Encoders}
@@ -228,27 +295,221 @@ As $T$ grows, this quadratic footprint becomes an insurmountable barrier. BERT a
 
 \subsection{BERT: Bidirectional Pre-Training at Scale}
 
-Devlin et al.\ introduced BERT~\cite{devlin2018bert} as the first large-scale empirical validation of bidirectional attention for language understanding. BERT-Base employs 12 Transformer encoder blocks with 12 attention heads and a hidden dimension $d = 768$ (110M parameters); BERT-Large uses 24 blocks, 16 heads, and $d = 1024$ (340M parameters). Pre-training proceeds on 16 GB of raw text via two objectives:
+Devlin et al.\ introduced BERT~\cite{devlin2018bert} as the first large-scale empirical validation of bidirectional attention for language understanding. BERT-Base employs 12 Transformer encoder blocks with 12 attention heads and a hidden dimension $d = 768$ (110M parameters); BERT-Large uses 24 blocks, 16 heads, and $d = 1024$ (340M parameters). Pre-training proceeds on 16 GB of raw text via two objectives that rely heavily on specialized functional tokens (\texttt{[CLS]}, \texttt{[SEP]}, and \texttt{[MASK]}):
 \begin{itemize}
-  \item \textbf{Masked Language Modeling (MLM):} 15\% of tokens are replaced with \texttt{[MASK]} and the model reconstructs the original tokens using bidirectional context.
-  \item \textbf{Next Sentence Prediction (NSP):} A binary classification objective trains the \texttt{[CLS]} token to predict whether two sentences are consecutive.
+  \item \textbf{Masked Language Modeling (MLM):} BERT addresses the ``leakage'' problem in bidirectional training by masking 15\% of input tokens using the \texttt{[MASK]} token. The attention mechanism is forced to reconstruct these masked tokens by aggregating information from both leftward and rightward contexts simultaneously. Unlike causal models where attention is restricted to preceding tokens, MLM leverages the full $T \times T$ attention matrix to build a holistic representation of each token based on its entire surroundings. 
+  
+  \textit{Example MLM operation:} Given the original text \textit{``the dog barks loudly''}, the model might receive the input sequence \texttt{the dog [MASK] loudly}. The model is tasked with outputting the target word \textit{``barks''} at the position of the \texttt{[MASK]} token. To mitigate the discrepancy between pre-training and fine-tuning (where \texttt{[MASK]} does not appear), the model follows an 80-10-10 strategy: 80\% are replaced with \texttt{[MASK]}, 10\% with a random token, and 10\% remain unchanged. This forces attention heads to maintain accurate representations of all tokens, not just those explicitly marked as masked.
+  
+  \item \textbf{Next Sentence Prediction (NSP):} This objective is designed to teach the model cross-sentence relationships. Two sentences, $S_A$ and $S_B$, are concatenated with a \texttt{[SEP]} token as a structural boundary. The \texttt{[CLS]} token, prepended to the sequence, acts as a global attention sink that attends to every token in both $S_A$ and $S_B$. By aggregating this document-level context through all $L$ layers, the final hidden state of \texttt{[CLS]} captures the semantic coherence between the two segments, allowing the model to predict whether $S_B$ logically follows $S_A$.
+  
+  \textit{Example NSP operations:}
+  \begin{itemize}
+      \item \textbf{IsNext}: \texttt{[CLS] the man went to the store. [SEP] he bought a gallon of milk. [SEP]} $\rightarrow$ \texttt{True}
+      \item \textbf{NotNext}: \texttt{[CLS] the man went to the store. [SEP] penguins are flightless birds. [SEP]} $\rightarrow$ \texttt{False}
+  \end{itemize}
 \end{itemize}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  token/.style={draw, rounded corners=2pt, minimum width=1.1cm, minimum height=0.6cm, fill=gray!10, font=\scriptsize\ttfamily, align=center},
+  enc/.style={draw, rounded corners=4pt, minimum width=8.5cm, minimum height=0.8cm, fill=blue!10, font=\small\bfseries, align=center},
+  outblock/.style={draw, rounded corners=2pt, minimum width=1.1cm, minimum height=0.6cm, fill=orange!10, font=\scriptsize, align=center},
+  arr/.style={-Stealth, thick, gray!80}
+]
+  % Input tokens
+  \node[token, fill=red!15] (t1) at (0,0) {[CLS]};
+  \node[token] (t2) at (1.4,0) {the};
+  \node[token] (t3) at (2.8,0) {dog};
+  \node[token, fill=green!15] (t4) at (4.2,0) {[MASK]};
+  \node[token] (t5) at (5.6,0) {loudly};
+  \node[token, fill=blue!15] (t6) at (7.0,0) {[SEP]};
+  \node[token] (t7) at (8.4,0) {it...};
+
+  % Encoder Stack
+  \node[enc] (bert) at (4.2, 1.5) {BERT Encoder Stack (L Layers)};
+  
+  % Outputs
+  \node[outblock, fill=red!20] (o1) at (0,3.0) {IsNext};
+  \node[outblock] (o2) at (1.4,3.0) {$E_2$};
+  \node[outblock] (o3) at (2.8,3.0) {$E_3$};
+  \node[outblock, fill=green!20] (o4) at (4.2,3.0) {barks};
+  \node[outblock] (o5) at (5.6,3.0) {$E_5$};
+  \node[outblock] (o6) at (7.0,3.0) {$E_6$};
+  \node[outblock] (o7) at (8.4,3.0) {$E_7$};
+
+  % Connections
+  \foreach \i in {1,...,7} {
+    \draw[arr] (t\i) -- (t\i |- bert.south);
+    \draw[arr] (t\i |- bert.north) -- (o\i);
+  }
+\end{tikzpicture}
+\caption{BERT pre-training architecture. The \texttt{[CLS]} token produces the NSP classification, while the \texttt{[MASK]} token is used to predict the missing vocabulary word. The \texttt{[SEP]} token delimits the two sequence segments and marks the end of the input.}
+\label{fig:bert_arch}
+\end{figure}
+
 BERT established state-of-the-art across 11 NLP tasks upon publication, cementing the validity of the bidirectional pre-training paradigm.
 
 \subsection{RoBERTa: Optimizing the Training Recipe}
 
-Liu et al.~\cite{liu2019roberta} demonstrated that BERT was significantly undertrained. RoBERTa matches the original BERT architecture but introduces: (i) a ten-fold increase in training data (160 GB), (ii) dynamic masking that generates novel mask patterns each epoch rather than using static masks, (iii) removal of the NSP objective (shown to degrade performance on downstream tasks), and (iv) larger batch sizes (up to 8,000 sequences). Without modifying the attention equations, RoBERTa substantially improves over BERT on most benchmarks, demonstrating that training methodology matters as much as architecture.
+Liu et al.~\cite{liu2019roberta} demonstrated that BERT was significantly undertrained. RoBERTa matches the original BERT architecture but introduces: (i) a ten-fold increase in training data (160 GB), (ii) dynamic masking that generates novel mask patterns each epoch rather than using static masks, (iii) removal of the NSP objective (shown to degrade performance on downstream tasks), and (iv) larger batch sizes (up to 8,000 sequences).
+
+\subsubsection{Scientific Impact of Scale on Attention Training}
+The massive influx of training data (160 GB vs. BERT's 16 GB), coupled with dynamic masking, fundamentally altered the convergence trajectory of the attention heads. In standard BERT, the use of static masks across epochs allowed certain attention heads to collapse into trivial memorization patterns—essentially learning static positional offsets to reconstruct the fixed, repeatedly seen masked sequences. By dynamically regenerating masks at each epoch and exposing the model to an order of magnitude more syntactic variance, RoBERTa forcefully prevented this positional overfitting. Scientifically, this increased data variance acted as a potent regularizer on the attention landscape. The heads were forced to learn robust, generalized semantic routing strategies capable of handling unprecedented contexts, rather than relying on brittle, localized dependencies. Consequently, without modifying the core attention equations, RoBERTa's attention distributions became measurably sharper and more syntactically accurate, substantially improving performance on all benchmarks.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=2pt, minimum width=2.5cm, minimum height=0.6cm, fill=blue!8, font=\scriptsize\ttfamily, align=center},
+  mask/.style={draw, rounded corners=2pt, minimum width=2.5cm, minimum height=0.6cm, fill=green!15, font=\scriptsize\ttfamily\bfseries, align=center},
+  arr/.style={-Stealth, thick, gray!80}
+]
+  \node[font=\footnotesize\bfseries] (e1) at (0, 2) {Epoch 1 (Dynamic Mask A)};
+  \node[box] (t11) at (-2.8, 1.2) {the};
+  \node[mask] (t12) at (0, 1.2) {[MASK]};
+  \node[box] (t13) at (2.8, 1.2) {sat};
+
+  \node[font=\footnotesize\bfseries] (e2) at (0, 0) {Epoch 2 (Dynamic Mask B)};
+  \node[box] (t21) at (-2.8, -0.8) {the};
+  \node[box] (t22) at (0, -0.8) {cat};
+  \node[mask] (t23) at (2.8, -0.8) {[MASK]};
+  
+  \node[font=\scriptsize\itshape, text=gray!80] at (0, 0.4) {Same input sequence, different mask generation};
+
+  \draw[arr, dashed] (t11.south) -- (t21.north);
+  \draw[arr, dashed] (t12.south) -- (t22.north);
+  \draw[arr, dashed] (t13.south) -- (t23.north);
+\end{tikzpicture}
+\caption{RoBERTa's Dynamic Masking. Instead of using a static mask for every epoch (as in BERT), the mask is generated dynamically. This forces attention heads to constantly adapt to new, unseen contextual contexts, significantly improving the robustness of the learned representations.}
+\label{fig:roberta_dynamic}
+\end{figure}
 
 \subsection{ALBERT: Parameter-Efficient Factorization}
 
-ALBERT~\cite{lan2019albert} addresses BERT's memory footprint via two structural changes to the attention mechanism: cross-layer parameter sharing (the same attention weight matrices are reused across all 12 layers) and factorized embedding parameterization (decomposing the large token embedding matrix into two smaller matrices). These changes reduce learnable parameters by 89\% while enabling training of deeper networks, though the underlying $\mathcal{O}(T^2)$ dense attention computation is preserved.
+ALBERT~\cite{lan2019albert} addresses BERT's memory footprint via structural changes that radically alter the model's parameterization, even as it preserves the $\mathcal{O}(T^2)$ dense attention computation. Two primary mechanisms are employed:
+
+\textbf{Cross-Layer Parameter Sharing:} In a standard BERT model, each layer $l \in [1, L]$ possesses its own independent attention weight matrices $\{W_Q^l, W_K^l, W_V^l, W_O^l\}$. ALBERT enforces weight sharing across all layers:
+\begin{equation}
+  W_Q^1 = W_Q^2 = \dots = W_Q^L
+\end{equation}
+This recursive application of the same attention parameters effectively transforms the deep stack of encoder layers into a single, iteratively refined transformation. While this drastically reduces the parameter count (achieving an 89\% reduction when comparing ALBERT-base to the equivalent BERT-base configuration), it increases the computational difficulty, as the same weights must generalize across the entire depth of the network.
+
+\textbf{Factorized Embedding Parameterization:} ALBERT decomposes the large token embedding matrix into two smaller matrices. Rather than projecting directly from the vocabulary $V$ to the model dimension $d$, it first projects to a lower-dimensional space $E$, such that the total parameters are reduced from $\mathcal{O}(V \times d)$ to $\mathcal{O}(V \times E + E \times d)$. This allows the model dimension $d$ to grow significantly without a corresponding explosion in vocabulary-related parameters.
+
+These architectural optimizations, combined with a Sentence-Order Prediction (SOP) loss to replace BERT's NSP, allow ALBERT to scale to much larger model dimensions while maintaining a lightweight footprint, albeit with a higher training time per parameter.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  enc/.style={draw, rounded corners=3pt, minimum width=2.8cm, minimum height=0.7cm, font=\scriptsize, align=center},
+  param/.style={draw=orange!80!black, dashed, rounded corners=3pt, minimum width=3.2cm, minimum height=1.5cm, fill=orange!10, font=\scriptsize, align=center},
+  tok/.style={font=\scriptsize\ttfamily},
+  arr/.style={-Stealth, thick, gray!80},
+  paramarr/.style={-Stealth, thick, orange!80!black, dashed}
+]
+
+  % Global Parameters Block
+  \node[param] (w) at (-3, 2.6) {\textbf{Global Shared Weights ($W$)}\\Attention: $W_Q, W_K, W_V, W_O$\\Feed-Forward: $W_{\text{FFN}}$};
+
+  % Unrolled Layers
+  \node[tok] (a_in)  at (2, 0) {Input Embeddings};
+  \node[enc, fill=blue!10] (a1) at (2, 1.2) {Layer 1};
+  \node[enc, fill=blue!10] (a2) at (2, 2.4) {Layer 2};
+  \node[font=\small] (adots)  at (2, 3.2) {$\vdots$};
+  \node[enc, fill=blue!10]   (aL) at (2, 4.0) {Layer L};
+  
+  \node[tok] (a_out) at (2, 5.2) {Output Representations};
+
+  % Data flow
+  \draw[arr] (a_in) -- (a1);
+  \draw[arr] (a1) -- (a2);
+  \draw[arr] (a2) -- (adots);
+  \draw[arr] (adots) -- (aL);
+  \draw[arr] (aL) -- (a_out);
+
+  % Weight sharing arrows via orthogonal bus to prevent overlapping
+  \coordinate (w_bus) at (0, 2.6);
+  \draw[thick, orange!80!black, dashed] (w.east) -- (w_bus);
+  \draw[paramarr] (w_bus) |- (a1.west);
+  \draw[paramarr] (w_bus) |- (a2.west);
+  \draw[paramarr] (w_bus) |- (aL.west);
+
+\end{tikzpicture}
+\caption{Cross-layer parameter sharing in ALBERT. Unlike standard architectures that instantiate independent weights for each layer, ALBERT maintains a single globally shared set of parameters ($W$) that is recurrently injected into every Transformer layer during the forward and backward passes.}
+\label{fig:albert_sharing}
+\end{figure}
 
 \subsection{ELECTRA: Sampling-Efficient Discriminative Pre-Training}
 
-Clark et al.~\cite{clark2020electra} proposed Replaced Token Detection (RTD) as a more sample-efficient alternative to MLM. A small generator network (itself a BERT-style encoder) proposes plausible token replacements; the primary encoder then discriminates between original and generated tokens. Because every token participates in the classification loss (not just the 15\% masked subset), ELECTRA achieves better performance per FLOP. The internal attention mechanism remains standard dot-product MHA.
+Clark et al.~\cite{clark2020electra} proposed Replaced Token Detection (RTD) as a more sample-efficient alternative to the standard MLM objective. While the internal attention mechanism remains standard dot-product MHA, the training paradigm is radically altered to improve learning efficiency.
+
+\textbf{Generator-Discriminator Architecture:} ELECTRA utilizes a two-network setup consisting of a small \emph{generator} ($G$) and a large \emph{discriminator} ($D$). The generator is typically a smaller BERT-style encoder (e.g., 1/4 the size of the discriminator) trained via standard MLM. It proposes plausible replacements for masked tokens based on its bidirectional context. The discriminator then attempts to predict, for \emph{every} token in the sequence, whether it is an ``original'' token or a ``replaced'' token generated by $G$.
+
+\textbf{Sample Efficiency through Global Loss:} In standard BERT, the model only receives a training signal from the 15\% of tokens that are masked. In ELECTRA, the discriminator produces a binary classification for \emph{all} $T$ tokens. This means that every single token in every sequence participates in the final loss calculation, regardless of whether it was actually replaced. This dense training signal allows ELECTRA to reach the same level of performance as RoBERTa with significantly fewer FLOPs (approximately 1/4 of the compute).
+
+While the generator is discarded after pre-training, the discriminator becomes the final encoder used for downstream tasks. Its attention heads, having been forced to detect extremely subtle semantic and syntactic anomalies produced by the generator, often exhibit higher sensitivity to nuanced linguistic context than those of models trained solely on reconstruction tasks.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  tok/.style={draw, rounded corners=2pt, minimum width=1.1cm, minimum height=0.5cm, fill=gray!10, font=\scriptsize\ttfamily, align=center},
+  gennet/.style={draw=orange!80!black, rounded corners=4pt, minimum width=4.0cm, minimum height=0.8cm, fill=orange!10, font=\scriptsize\bfseries, align=center},
+  discnet/.style={draw=teal!80!black, rounded corners=4pt, minimum width=6.5cm, minimum height=0.8cm, fill=teal!10, font=\scriptsize\bfseries, align=center},
+  arr/.style={-Stealth, thick, gray!80}
+]
+
+  % 1. Input to Generator
+  \node[tok] (i1) at (0, 0) {the};
+  \node[tok, fill=red!15] (i2) at (2.0, 0) {[MASK]};
+  \node[tok] (i3) at (4.0, 0) {sat};
+  
+  % Generator Model
+  \node[gennet] (gen) at (2.0, 1.2) {Generator\\(Small Masked Language Model)};
+  
+  % Arrows to Generator
+  \draw[arr] (i1.north) -- (0, 0.8);
+  \draw[arr] (i2.north) -- (2.0, 0.8);
+  \draw[arr] (i3.north) -- (4.0, 0.8);
+
+  % 2. Output of Generator (Corrupted Sequence)
+  \node[tok] (m1) at (0, 2.8) {the};
+  \node[tok, fill=purple!20] (m2) at (2.0, 2.8) {dog};
+  \node[tok] (m3) at (4.0, 2.8) {sat};
+
+  % Arrows from Gen to filled mask
+  \draw[arr, draw=purple!80!black] (gen.north) -- (m2.south) node[midway, right=4pt, font=\scriptsize\itshape, align=left] {Predicts fake\\but plausible word};
+  
+  % Skip connections for unmasked tokens
+  \draw[arr, dashed, gray!60] (i1.west) to[bend left=55] (m1.west);
+  \draw[arr, dashed, gray!60] (i3.east) to[bend right=55] (m3.east);
+
+  % 3. Discriminator Model
+  \node[discnet] (disc) at (2.0, 4.2) {Discriminator\\(Large Transformer Encoder - Main Model)};
+
+  % Arrows to Discriminator
+  \draw[arr] (m1.north) -- (0, 3.8);
+  \draw[arr] (m2.north) -- (2.0, 3.8);
+  \draw[arr] (m3.north) -- (4.0, 3.8);
+  
+  % 4. Output of Discriminator (RTD)
+  \node[tok, fill=green!20] (o1) at (0, 5.6) {Original};
+  \node[tok, fill=purple!20] (o2) at (2.0, 5.6) {Replaced};
+  \node[tok, fill=green!20] (o3) at (4.0, 5.6) {Original};
+
+  % Arrows from Discriminator to output
+  \draw[arr] (0, 4.6) -- (o1.south);
+  \draw[arr] (2.0, 4.6) -- (o2.south);
+  \draw[arr] (4.0, 4.6) -- (o3.south);
+
+\end{tikzpicture}
+\caption{ELECTRA pre-training architecture. A small \textbf{Generator} (equivalent to a tiny BERT) is trained via Masked Language Modeling to produce plausible fake tokens for masked positions (e.g., ``dog''). The \textbf{Discriminator} (the actual target architecture being pre-trained) reads the reconstructed sequence. Its task, Replaced Token Detection (RTD), is a binary classification applied to \emph{every single token}: was this token from the original text, or was it a fake replacement injected by the Generator? This provides a dense training signal across all sequence positions instead of just 15\%.}
+\label{fig:electra_arch}
+\end{figure}
 
 % ══════════════════════════════════════════════════════════════════════════════
 \section{Disentangling Context and Position: DeBERTa}
+\label{sec:deberta}
 % ══════════════════════════════════════════════════════════════════════════════
 
 Standard foundational models like BERT fuse word content embeddings and absolute positional encodings into a single unified vector via simple element-wise addition at the very beginning of the network, before computing any attention operations. He et al.~\cite{he2020deberta} argued this early fusion effectively obfuscates the independent mathematical contributions of semantic meaning and spatial relativity, forcing the network to inefficiently untangle them in deeper layers.
@@ -257,20 +518,27 @@ Standard foundational models like BERT fuse word content embeddings and absolute
 
 In DeBERTa, every token $i$ is represented by two separate, persistently maintained vectors: a content vector $H_i \in \mathbb{R}^d$ encoding semantic meaning, and a relative position vector $P_{i|j} \in \mathbb{R}^d$ encoding the spatial relationship between positions $i$ and $j$. The cross-attention score between tokens $i$ and $j$ is decomposed into four components:
 \begin{equation}
-  A_{i,j} = H_i H_j^\top + H_i P_{j|i}^\top + P_{i|j} H_j^\top + P_{i|j} P_{j|i}^\top
-  \label{eq:deberta}
+  A_{i,j} = \underbrace{H_i H_j^\top}_{\text{Content-to-Content}} + \underbrace{H_i P_{j|i}^\top}_{\text{Content-to-Position}} + \underbrace{P_{i|j} H_j^\top}_{\text{Position-to-Content}} + \underbrace{P_{i|j} P_{j|i}^\top}_{\text{Position-to-Position}}
+  \label{eq:deberta_full}
 \end{equation}
-\begin{itemize}
-  \item $H_i H_j^\top$: content-to-content similarity.
-  \item $H_i P_{j|i}^\top$: how token $i$'s semantics relate to the relative position of token $j$.
-  \item $P_{i|j} H_j^\top$: how the relative position of $i$ relates to token $j$'s semantics (the \emph{position-to-content} term missing from Shaw et al.~\cite{shaw2018self}).
-  \item $P_{i|j} P_{j|i}^\top$: pure spatial distance (often omitted in practice to bound complexity).
-\end{itemize}
 
-DeBERTa introduces a unique scaling factor $1/\sqrt{3d}$ in place of $1/\sqrt{d_k}$ to account for the increased variance of the three-term sum. DeBERTa's rigorous ablation studies conclusively demonstrated that the third term—the \emph{position-to-content} dependency—is critical for accurate language modeling. For instance, the attention weight that a verb assigns to a noun depends not only on their semantic compatibility but heavily on whether the noun occupies a typical object position relative to the verb. This structural innovation enabled DeBERTa-XXL to surpass human performance on the SuperGLUE benchmark~\cite{he2020deberta}.
+\subsubsection{The Necessity of Position-to-Content Interaction}
+The primary innovation of DeBERTa over earlier relative attention mechanisms (e.g., Shaw et al.~\cite{shaw2018self}) is the inclusion of the \textbf{Position-to-Content} term ($P_{i|j} H_j^\top$). While Content-to-Position ($H_i P_{j|i}^\top$) allows a query token to seek a key at a specific offset, the Position-to-Content term allows a specific \emph{offset} to seek a specific \emph{semantic type}.
+
+Consider the phrase \textit{``a new teacher''}. To accurately represent the word \textit{``teacher''}, the model must understand its relationship with \textit{``new''}:
+\begin{itemize}
+    \item \textbf{Content-to-Content:} The semantics of ``new'' (adjective) and ``teacher'' (noun) are compatible.
+    \item \textbf{Content-to-Position:} The word ``new'' looks for a noun at the relative position $+1$.
+    \item \textbf{Position-to-Content:} The relative position $-1$ (from the perspective of ``teacher'') looks for an adjective. 
+\end{itemize}
+In standard absolute encoding, these relationships are confounded. By disentangling them, DeBERTa can explicitly model the inductive bias that an adjective modifying a noun typically appears in a specific relative position, regardless of the absolute position in the sequence.
+
+\subsubsection{Scaling and Efficiency}
+Because the variance of the sum of three terms (assuming $P_{i|j} P_{j|i}^\top$ is omitted) is higher than a single term, DeBERTa introduces a unique scaling factor $1/\sqrt{3d}$ in place of $1/\sqrt{d_k}$ to maintain training stability. Furthermore, DeBERTa employs an \textbf{Enhanced Masked Decoder (EMD)}, which incorporates absolute positions only at the final layer before the softmax, ensuring that the model captures global structural layout while the intermediate layers focus exclusively on relative semantic-spatial interactions. This architectural refinement enabled DeBERTa-XXL to surpass human performance on the SuperGLUE benchmark~\cite{he2020deberta}.
 
 % ══════════════════════════════════════════════════════════════════════════════
 \section{Taming the Quadratic Bottleneck}
+\label{sec:taming}
 % ══════════════════════════════════════════════════════════════════════════════
 
 As the adoption of encoder-only models expanded into domains requiring the processing of entire books, complex legal contracts, and high-resolution genomic sequences, the $\mathcal{O}(T^2)$ time and space complexity of standard bidirectional attention transitioned from a theoretical inconvenience to a hard physical constraint.
@@ -323,13 +591,14 @@ Alternating Attn   & $\mathcal{O}(T \log T \cdot d)$ & $\mathcal{O}(T w h)$ & Me
 \label{tab:complexity}
 \end{table}
 
-\begin{figure}[h]
+\begin{figure}[ht]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
   width=0.82\linewidth, height=6.5cm,
-  xlabel={Sequence length $T$},
+  xlabel={Sequence length $T$ (log scale)},
   ylabel={Relative cost (log scale)},
+  xmode=log, log basis x=2,
   xtick={128,256,512,1024,2048,4096},
   xticklabels={128,256,512,1k,2k,4k},
   ymode=log, log basis y=2,
@@ -399,7 +668,7 @@ Trained on an unprecedented 2 trillion tokens, ModernBERT was engineered to supp
 \end{itemize}
 The effective complexity behaves as $\mathcal{O}(T \log T \cdot d)$ for practical document lengths. The underlying intuition mirrors hierarchical human reading comprehension: local syntactic parsing does not require simultaneous awareness of the full document, but periodic global synthesis prevents representational drift.
 
-\begin{figure}[h]
+\begin{figure}[ht]
 \centering
 \begin{tikzpicture}[
   local/.style={draw, fill=blue!18, rounded corners=3pt,
@@ -446,6 +715,12 @@ The underlying intuition mirrors hierarchical human reading comprehension: local
 
 Beyond attention, ModernBERT incorporates: GeGLU activations (replacing GELU in the FFN), rotary position embeddings (RoPE), no bias terms in attention projections, sequence packing and unpadding to eliminate padding token waste, and a 50$\times$ larger multilingual vocabulary. The result is 2–3$\times$ faster inference than DeBERTa-v3-large at 8k context with state-of-the-art GLUE and long-context retrieval scores.
 
+\subsection{Quality Retention at Extended Contexts}
+
+A persistent limitation of extending the context window of legacy attention architectures (often via simple interpolation of Absolute Position Embeddings~\cite{devlin2018bert}) is the so-called ``lost in the middle'' phenomenon. Models successfully retrieve information from the absolute beginning or end of a sequence but catastrophically fail to isolate relevant facts buried deep within a long document. ModernBERT fundamentally mitigates this degradation through its combination of Rotary Position Embeddings (RoPE) and the alternating global-local attention schedule.
+
+Empirical evaluations on ``needle-in-a-haystack'' retrieval benchmarks demonstrate that ModernBERT rigorously preserves representation quality as the sequence length approaches its native 8,192-token limit. Because the periodic global layer (every third layer in the stack) computes an unconstrained $8\text{k} \times 8\text{k}$ attention matrix, a token at position $i$ can query an exact semantic match at position $i + 6,000$ in a single forward step without relying on lossy local diffusion. This structural guarantee allows ModernBERT to maintain near-perfect factual recall and dense embedding fidelity across the entirety of its 8k context, a capability previously impossible for foundational encoders.
+
 % ══════════════════════════════════════════════════════════════════════════════
 \section{Hybrid and Gated Architectures}
 % ══════════════════════════════════════════════════════════════════════════════
@@ -456,11 +731,11 @@ As the limitations of pure self-attention became apparent—specifically the $\m
 
 Selective State Space Models (SSMs), such as Mamba, process sequences in linear time by compressing context into a hidden state. However, pure SSMs often struggle with tasks requiring precise, global token-to-token retrieval. MaBERT addresses this by interleaving Mamba layers with standard Transformer attention in a repeating schedule.
 
-A critical challenge in bidirectional SSMs is the handling of padding. While self-attention uses $-\infty$ masks to ignore padding, SSM states can be "polluted" by padding tokens during the forward and backward passes. MaBERT introduces \emph{padding-safe masking}, which explicitly blocks state propagation through padded positions. Combined with mask-aware attention pooling (MAP), MaBERT achieves competitive GLUE scores while reducing inference latency by up to 50\% for sequences of 4,096 tokens.
+A critical challenge in bidirectional SSMs is the handling of padding. While self-attention uses $-\infty$ masks to ignore padding, SSM states can be ``polluted'' by padding tokens during the forward and backward passes. MaBERT introduces \emph{padding-safe masking}, which explicitly blocks state propagation through padded positions. Combined with mask-aware attention pooling (MAP), MaBERT achieves competitive GLUE scores while reducing inference latency by up to 50\% for sequences of 4,096 tokens.
 
 \subsection{Gated Attention and Massive Activations}
 
-Pure attention mechanisms lack a mechanism to regulate the "volume" of information flowing through a head. Gated Attention introduces a query-dependent sigmoid gate:
+Pure attention mechanisms lack a mechanism to regulate the ``volume'' of information flowing through a head. Gated Attention introduces a query-dependent sigmoid gate:
 \begin{equation}
   \text{GatedAttn}(Q,K,V) = \sigma(W_g Q + b_g) \odot \text{Attention}(Q,K,V)
 \end{equation}
@@ -514,7 +789,7 @@ Empirical visualizations frequently reveal that substantial probability mass ($>
 Because $\sum_j \text{softmax}(q_i k_j^\top / \sqrt{d_k}) = 1$ for all queries $i$, the model is forced to allocate probability mass even when no semantically relevant token exists in context. Attention sinks serve as ``no-op'' targets: the network geometrically anchors \texttt{[CLS]} representations in a distinct subspace such that attending to them contributes minimally to the output value~\cite{sun2024massive}.
 \end{proposition}
 
-\begin{figure}[h]
+\begin{figure}[ht]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
