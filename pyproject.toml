@@ -1,9 +1,15 @@
 [project]
 name = "attention-encoders"
-version = "0.1.1"
+version = "0.1.2"
 description = "Attention in Encoders Viewer App"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn>=0.20.0",
+    "pydantic>=2.0",
+    "transformers",
+    "torch"
+]
 
 [build-system]
 requires = ["hatchling"]
