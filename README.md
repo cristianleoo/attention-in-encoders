@@ -25,7 +25,7 @@ pip install attention-encoders
 Once installed, simply launch the application from your terminal:
 
 ```bash
-attention
+attention-encoders
 ```
 
 This will automatically configure and boot both the FastAPI inference server and the Next.js frontend, making the explorer instantly available.

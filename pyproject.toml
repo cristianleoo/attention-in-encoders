@@ -1,6 +1,6 @@
 [project]
 name = "attention-encoders"
-version = "0.1.0"
+version = "0.1.1"
 description = "Attention in Encoders Viewer App"
 requires-python = ">=3.10"
 dependencies = []
@@ -10,7 +10,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project.scripts]
-attention = "attention_app:main"
+attention-encoders = "attention_app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
