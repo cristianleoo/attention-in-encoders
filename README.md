@@ -14,11 +14,25 @@ This project is the official implementation for the paper:
 
 ## 🎨 Interactive Explorer
 
-Probe bidirectional self-attention, visualize token-to-token flow, and benchmark hardware limits across multiple model architectures.
+## 🚀 Installation
 
-### Quickstart
+The recommended way to install and run the Attention Explorer is directly via `pip`:
 
-To run both the backend (FastAPI) and frontend (Next.js) from the project root:
+```bash
+pip install attention
+```
+
+Once installed, simply launch the application from your terminal:
+
+```bash
+attention
+```
+
+This will automatically configure and boot both the FastAPI inference server and the Next.js frontend, making the explorer instantly available.
+
+### Development Setup
+
+If you are developing or wish to run the application from source:
 
 1.  **Install dependencies** (run once):
     ```bash
@@ -29,7 +43,7 @@ To run both the backend (FastAPI) and frontend (Next.js) from the project root:
     npm run dev
     ```
     - **Frontend:** `http://localhost:3000`
-    - **Backend API:** `http://localhost:8000`
+    - **Backend API:** `http://localhost:8005`
 
 ---
 
